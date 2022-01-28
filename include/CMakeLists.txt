@@ -1,0 +1,4 @@
+install(
+    FILES benesh.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)

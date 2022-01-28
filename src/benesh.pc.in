@@ -1,0 +1,11 @@
+prefix=@DEST_DIR@
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: benesh
+Description: declarative semantics for in-situ workflows
+Version: @benesh_VERSION@
+
+Requires: dspaces ekt argobots @NEED_APEX@
+Libs: -L${libdir} -lbenesh
+Cflags: -I${includedir}

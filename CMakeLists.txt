@@ -31,8 +31,12 @@ set (CMAKE_PREFIX_PATH "" CACHE STRING "External dependencies path")
 
 include (xpkg-import)
 xpkg_import_module(ekt REQUIRED ekt)
+xpkg_import_module(argobots REQUIRED argobots)
+xpkg_import_module(apex apex)
+
 
 find_package(dspaces REQUIRED)
 find_package(MPI COMPONENTS REQUIRED)
 
+add_subdirectory(include)
 add_subdirectory(src)
