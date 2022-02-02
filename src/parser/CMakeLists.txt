@@ -8,7 +8,9 @@ include_directories(
 )
 
 bison_target(xcparse xc.y ${CMAKE_CURRENT_BINARY_DIR}/xc_parse.c)
-flex_target(xclex xc.l ${CMAKE_CURRENT_BINARY_DIR}/xc_lex.c)
+flex_target(xclex xc.l ${CMAKE_CURRENT_BINARY_DIR}/xc_lex.c
+            COMPILE_FLAGS "-Pxc_ -i"
+)
 ADD_FLEX_BISON_DEPENDENCY(xclex xcparse)
 
 add_library(parser 

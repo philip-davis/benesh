@@ -32,6 +32,15 @@
 #undef DEBUG_LOCKS
 #undef BDEBUG
 
+#define DEBUG_OUT(...)                                                         \
+    do {                                                                       \
+        if(bnh->f_debug) {                                                  \
+            fprintf(stderr, "Rank %i: %s, line %i (%s): ", bnh->rank,       \
+                    __FILE__, __LINE__, __func__);                             \
+            fprintf(stderr, __VA_ARGS__);                                      \
+        }                                                                      \
+    } while(0);
+
 struct wf_domain {
     char *name;
     char *full_name;
@@ -222,6 +231,7 @@ struct benesh_handle {
     struct wf_domain *doms;
     dspaces_client_t dsp;
     int ready;
+    int f_debug;
 };
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx);
@@ -410,26 +420,16 @@ int object_realized(struct benesh_handle *bnh, struct wf_target *rule,
 {
     struct obj_entry *ent;
 
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
     ABT_mutex_lock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
 
     ent = get_object_entry(bnh, rule, 0, map_vals, 0);
     if(ent && ent->realized) {
         ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
         return 1;
     }
+    DEBUG_OUT("object %p not realized\n", (void *)ent);
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
+
     return 0;
 }
 
@@ -475,6 +475,21 @@ void print_pq_obj(FILE *stream, struct pq_obj *pq)
     }
 }
 
+void print_pq_obj_nl(FILE *stream, struct pq_obj *pq)
+{
+     int i;
+
+    if(pq->len < 1) {
+        fprintf(stream, "(empty)");
+    }
+
+    fprintf(stream, "%s", pq->val[0]);
+    for(i = 1; i < pq->len; i++) {
+        fprintf(stream, ".%s", pq->val[i]);
+    }
+    fprintf(stream, "\n");
+}
+
 void print_object(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
 {
     int var_loc;
@@ -498,26 +513,54 @@ void print_object(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
     }
 }
 
+void print_object_nl(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
+{
+    int var_loc;
+    int i, j;
+
+    for(i = 0; i < rule->name_len; i++) {
+        if(i > 0) {
+            fprintf(stream, ".");
+        }
+        for(j = 0, var_loc = -1; j < rule->num_vars; j++) {
+            if(rule->tgt_locs[j] == i) {
+                var_loc = j;
+                break;
+            }
+        }
+        if(var_loc > -1) {
+            fprintf(stream, "%" PRIu64, map_vals[var_loc]);
+        } else {
+            fprintf(stream, "%s", rule->obj_name[i]);
+        }
+    }
+    fprintf(stream, "\n");
+}
+
+
 void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
                     uint64_t *map_vals)
 {
     struct obj_entry *ent;
+    int i;
+
     APEX_FUNC_TIMER_START(realize_object);
-#ifdef BDEBUG
-    fprintf(stderr, "realizing ");
-    print_object(stderr, rule, map_vals);
-    fprintf(stderr, "\n");
-#endif /* BDEBUG */
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
+    if(bnh->f_debug) {
+        DEBUG_OUT("realizing object: ");
+        print_object_nl(stderr, rule, map_vals);
+    }
+
     APEX_NAME_TIMER_START(1, "db_lock_roa");
     ABT_mutex_lock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
 
     ent = get_object_entry(bnh, rule, 0, map_vals, 1);
+    DEBUG_OUT(" object entry is %p\n", (void *)ent);
+    if(bnh->f_debug) {
+        DEBUG_OUT("  rule id = %li\n", rule - bnh->tgts);
+        for(i = 0; i < rule->num_vars; i++) {
+            DEBUG_OUT("   %s => %" PRIu64 "\n",rule->tgt_vars[i],  map_vals[i]);
+        }
+    } 
     if(!ent) {
         fprintf(
             stderr,
@@ -531,9 +574,6 @@ void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
     ent->realized = 1;
     ent->pending = 0;
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
     APEX_TIMER_STOP(0);
 }
 
@@ -799,6 +839,7 @@ static int work_watch(void *work_v, void *bnh_v)
     struct work_announce *work = (struct work_announce *)work_v;
     struct work_node wnode;
     struct obj_entry *ent;
+    int i;
 
     APEX_FUNC_TIMER_START(work_watch);
     while(!bnh->ready) {
@@ -825,20 +866,16 @@ static int work_watch(void *work_v, void *bnh_v)
     memcpy(wnode.var_maps, work->tgt_vars,
            sizeof(*wnode.var_maps) * wnode.tgt->num_vars);
 
-#ifdef BDEBUG
-    fprintf(stderr,
-            "received work for target %" PRIu32 ", subrule %" PRId32 "\n",
+    DEBUG_OUT("received work for target %" PRIu32 ", subrule %" PRId32 "\n",
             work->tgt_id, work->subrule_id);
-#endif /* BDEBUG */
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
+    if(bnh->f_debug) {
+        for(i = 0; i < wnode.tgt->num_vars; i++) {
+            DEBUG_OUT(" tgt_var %i = %" PRIu64 "\n", i, wnode.var_maps[i]);
+        }
+    }
     APEX_NAME_TIMER_START(1, "db_lock_wwa");
     ABT_mutex_lock(bnh->db_mutex);
     APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
     ent = get_object_entry(bnh, wnode.tgt, wnode.subrule, wnode.var_maps, 1);
     if(!ent) {
         fprintf(stderr,
@@ -849,11 +886,10 @@ static int work_watch(void *work_v, void *bnh_v)
                 "WARNING: trying to realize work that already is realized:\n");
     }
     ent->realized = 1;
+    DEBUG_OUT(" realized entry %p\n", (void *)ent);
+
 
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
     activate_subs(bnh, &wnode);
     APEX_TIMER_STOP(0);
 
@@ -1156,15 +1192,11 @@ static int match_rule(struct tpoint_rule *rule, char **tk_tpoint, int tkcnt,
 
 static void benesh_load_config(struct benesh_handle *bnh, const char *conf)
 {
-#ifdef BDEBUG
     if(bnh->rank == 0) {
-        fprintf(stderr, "Reading workflow configuration from %s...\n", conf);
+        DEBUG_OUT("reading workflow configuration from %s...\n", conf);
     }
-#endif /* BDEBUG */
-    fprintf(stderr, "%s start func timer\n", __func__);
     APEX_FUNC_TIMER_START(benesh_load_config);
     bnh->conf = xc_fparse(conf, bnh->mycomm);
-    fprintf(stderr, "%s stopping func timer\n", __func__);
     APEX_TIMER_STOP(0);
 }
 
@@ -1844,29 +1876,30 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
 {
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
+    const char *envdebug = getenv("BENESH_DEBUG");
+    
+    if(envdebug) {
+        bnh->f_debug = 1;
+    }
 
-    fprintf(stderr, "%s start func timer\n", __func__);
     APEX_FUNC_TIMER_START(benesh_init);
     MPI_Comm_dup(gcomm, &bnh->mycomm);
     MPI_Comm_rank(bnh->mycomm, &bnh->rank);
     MPI_Comm_size(bnh->mycomm, &bnh->comm_size);
 
-    fprintf(stderr, "%s starting timer 1\n", __func__);
     APEX_NAME_TIMER_START(1, "margo init");
-    bnh->mid = margo_init("verbs", MARGO_SERVER_MODE, 1, 1);
-    fprintf(stderr, "%s stopping timer 1\n", __func__);
+    DEBUG_OUT("initializing margo...\n");
+    bnh->mid = margo_init("sockets", MARGO_SERVER_MODE, 1, 1);
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
-    fprintf(stderr, "%s starting timer 2\n", __func__);
     APEX_NAME_TIMER_START(2, "dspaces init");
+    DEBUG_OUT("initializing dataspaces...\n");
     dspaces_init_mpi(bnh->mycomm, &bnh->dsp);
-    fprintf(stderr, "%s stopping timer 2\n", __func__);
     APEX_TIMER_STOP(2);
-    fprintf(stderr, "%s starting timer 3\n", __func__);
     APEX_NAME_TIMER_START(3, "ekt init");
+    DEBUG_OUT("initializing EKT...\n");
     ekt_init(&bnh->ekth, name, bnh->mycomm, bnh->mid);
-    fprintf(stderr, "did ekt_init\n");
     ekt_register(bnh->ekth, BENESH_EKT_WORK, serialize_work, deserialize_work,
                  bnh, &bnh->work_type);
     ekt_watch(bnh->ekth, bnh->work_type, work_watch);
@@ -1874,9 +1907,9 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
     ekt_register(bnh->ekth, BENESH_EKT_FINI, serialize_fini, deserialize_fini,
                  bnh, &bnh->fini_type);
     ekt_watch(bnh->ekth, bnh->fini_type, fini_watch);
-    fprintf(stderr, "%s stopping timer 3\n", __func__);
     APEX_TIMER_STOP(3);
 
+    DEBUG_OUT("initializing mutexes...\n");
     ABT_mutex_create(&bnh->work_mutex);
     ABT_cond_create(&bnh->work_cond);
     ABT_mutex_create(&bnh->db_mutex);
@@ -1884,27 +1917,25 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
     ABT_cond_create(&bnh->data_cond);
 
     benesh_load_config(bnh, conf);
-    fprintf(stderr, "%s starting timer 4\n", __func__);
     APEX_NAME_TIMER_START(4, "benesh laod");
+    DEBUG_OUT("initializing workflow variables...\n");
     benesh_init_vars(bnh);
-    fprintf(stderr, "%s doing benesh_init_doms\n", __func__);
+    DEBUG_OUT("initializing workflow domain...\n");
     benesh_init_doms(bnh);
-    fprintf(stderr, "%s doing benesh_init_comps\n", __func__);
+    DEBUG_OUT("initializing workflow components...\n");
     benesh_init_comps(bnh);
-    fprintf(stderr, "%s doing benesh_load_targets\n", __func__);
+    DEBUG_OUT("initializing workflow targets...\n");
     benesh_load_targets(bnh);
-    fprintf(stderr, "%s doing get_tpoint_rules\n", __func__);
+    DEBUG_OUT("initializing workflow touchpoints...\n");
     rules = get_tpoint_rules(bnh);
 
-    fprintf(stderr, "%s doing bnsh_tpoint_init\n", __func__);
     bnsh_tpoint_init(bnh, rules, &bnh->tph);
-    fprintf(stderr, "%s stopping timer 4\n", __func__);
     APEX_TIMER_STOP(4);
 
     bnh->ready = 1;
+    DEBUG_OUT("ready for workflow processing.\n");
 
     *handle = bnh;
-    fprintf(stderr, "%s stopping func timer\n", __func__);
     APEX_TIMER_STOP(0);
 }
 
@@ -2067,17 +2098,20 @@ void publish_var(struct benesh_handle *bnh, struct wf_var *var,
         strcat(ds_var_name, num_str);
     }
 
-#ifdef BDEBUG
-    fprintf(stderr, "publishing %s along domain %s\n", ds_var_name,
+    DEBUG_OUT("publishing %s along domain %s\n", ds_var_name,
             dom->full_name);
-#endif /* BDEBUG */
 
     lb = malloc(sizeof(*lb) * dom->dim);
     ub = malloc(sizeof(*ub) * dom->dim);
     for(i = 0; i < dom->dim; i++) {
         pitch = dom->l_grid_dims[i] / dom->l_grid_pts[i];
-        lb[i] = (dom->l_offset[i] - ol_off_lb[i]) / pitch;
+        if(dom->l_offset[i] > ol_off_lb[i]) {
+            lb[i] = (dom->l_offset[i] - ol_off_lb[i]) / pitch;
+        } else {
+            lb[i] = 0;
+        }
         ub[i] = lb[i] + dom->l_grid_pts[i] - 1;
+        DEBUG_OUT("geometry for dimension %i: grid_dims = %lf, grid_pts = %" PRIu64 ", pitch = %lf, offset = %lf, overlap_offset = %lf, lb = %" PRIu64 ", ub = %" PRIu64 "\n", i, dom->l_grid_dims[i], dom->l_grid_pts[i], pitch, dom->l_offset[i], ol_off_lb[i], lb[i], ub[i]);
     }
 
 // TODO: more sophisticated type handling, version control
@@ -2320,14 +2354,12 @@ static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
         ds->lb[i] = (lbf[i] - l_dom->lb[i]) / pitch;
         ds->ub[i] = (ubf[i] - l_dom->lb[i]) / pitch - 1;
     }
-    // fprintf(stderr, "%s (%li, %li) - (%li, %li)\n", __func__, lb[0], lb[1],
-    // ub[0], ub[1]);
     ds->lint = (lbf[0] - glb) / (gub - glb);
     ds->uint = (ubf[0] - glb) / (gub - glb);
     ds->waiting = 0;
 
-    // fprintf(stderr, "dspaces_subbing %s\n", ds_var_name);
     wnode->ds = ds;
+    DEBUG_OUT("subscribing to %s\n", ds_var_name);
     wnode->req = dspaces_sub(bnh->dsp, ds_var_name, 0, sizeof(double), dom->dim,
                              lb, ub, handle_notify, ds);
     APEX_TIMER_STOP(0);
@@ -2458,33 +2490,20 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 
     APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "getting data lock in %s\n", __func__);
-#endif
         APEX_NAME_TIMER_START(1, "data_lock_csa");
         ABT_mutex_lock(bnh->data_mutex);
         APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "got data lock in %s\n", __func__);
-#endif
         ds->waiting = 1;
         ABT_cond_broadcast(bnh->data_cond);
 
         ABT_mutex_unlock(bnh->data_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "released data lock in %s\n", __func__);
-#endif
-
-#ifdef BDEBUG
-        fprintf(stderr, "waiting for dspaces_check_sub\n");
-#endif
+        DEBUG_OUT("waiting for dspaces_check_sub\n");
         APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
+        
         ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
               DSPACES_SUB_DONE;
         APEX_TIMER_STOP(2);
-#ifdef BDEBUG
-        fprintf(stderr, "dspaces_check_sub finished\n");
-#endif
+        DEBUG_OUT("dspaces_check_sub finished\n");
         APEX_TIMER_STOP(0);
         return (ret);
     } else {
@@ -2527,7 +2546,7 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
     struct pq_obj **dep_tgts = NULL;
     struct wf_target *dep_rule;
     uint64_t *dep_map_vals;
-    int i;
+    int i, j;
 
     APEX_FUNC_TIMER_START(deps_met);
     if(!tgt->ndep) {
@@ -2539,10 +2558,15 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
         dep_tgts[i] =
             resolve_obj(tgt->deps[i], tgt->num_vars, tgt->tgt_vars, map_vals);
         dep_rule = find_target_rule(bnh, dep_tgts[i], &dep_map_vals);
-        if(!object_realized(bnh, dep_rule, map_vals)) {
-            fprintf(stderr, "dep not met: ");
-            print_pq_obj(stderr, dep_tgts[i]);
-            fprintf(stderr, "\n");
+        if(!object_realized(bnh, dep_rule, dep_map_vals)) {
+            if(bnh->f_debug) {
+                DEBUG_OUT("dep not met: ");
+                print_pq_obj_nl(stderr, dep_tgts[i]);
+                DEBUG_OUT(" dep rule id = %li\n", dep_rule - bnh->tgts);
+                for(j = 0; j < dep_rule->num_vars; j++) {
+                    DEBUG_OUT("   %s => %" PRIu64 "\n", dep_rule->tgt_vars[j], dep_map_vals[j]);
+                } 
+            }
             free(dep_map_vals);
             free(dep_tgts);
             APEX_TIMER_STOP(0);
@@ -2562,20 +2586,11 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
     switch(wnode->type) {
     case BNH_WORK_OBJ:
         if(wnode->subrule == -1) {
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
             APEX_NAME_TIMER_START(1, "lock_work_hwa");
             ABT_mutex_lock(bnh->work_mutex);
             APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
             if(deps_met(bnh, wnode->tgt, wnode->var_maps)) {
                 ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
 #ifdef BDEBUG
                 fprintf(stderr, "Starting object tgt %li\n",
                         wnode->tgt - bnh->tgts);
@@ -2583,9 +2598,6 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
                 break;
             }
             ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
             return 0;
 #ifdef BDEBUG
         } else if(wnode->subrule == 0) {
@@ -2750,29 +2762,14 @@ void benesh_handle_work(struct benesh_handle *bnh)
     int handled = 0;
 
     APEX_FUNC_TIMER_START(benesh_handle_work);
-#ifdef BDEBUG
-    fprintf(stderr, "starting %s\n", __func__);
-#endif
 
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
     APEX_NAME_TIMER_START(1, "lock_work_bhwa");
     ABT_mutex_lock(bnh->work_mutex);
     APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
     if(!bnh->wqueue_tail && bnh->comp_count > 1) {
-#ifdef BDEBUG
-        fprintf(stderr, "wqueue tail is empty, waiting...\n");
-#endif
         APEX_NAME_TIMER_START(2, "wait_work");
         ABT_cond_wait(bnh->work_cond, bnh->work_mutex);
         APEX_TIMER_STOP(2);
-#ifdef BDEBUG
-        fprintf(stderr, "got wakeup\n");
-#endif
     }
 
     while(bnh->wqueue_tail) {
@@ -2784,27 +2781,15 @@ void benesh_handle_work(struct benesh_handle *bnh)
         fprintf(stderr, "\n");
 #endif
         ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
         if(!handle_work(bnh, wnode)) {
 #ifdef BDEBUG
             fprintf(stderr, "requeueing incomplete work\n");
 #endif
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
             APEX_NAME_TIMER_START(3, "lock_work_bhwb");
             ABT_mutex_lock(bnh->work_mutex);
             APEX_TIMER_STOP(3);
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
             benesh_make_active(bnh, wnode);
             ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-            fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
         } else {
             switch(wnode->type) {
             case BNH_WORK_OBJ:
@@ -2814,24 +2799,15 @@ void benesh_handle_work(struct benesh_handle *bnh)
                 activate_subs(bnh, wnode);
                 break;
             case BNH_WORK_RULE:
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
                 (void)0;
                 APEX_NAME_TIMER_START(4, "lock_db_hwa");
                 ABT_mutex_lock(bnh->db_mutex);
                 APEX_TIMER_STOP(4);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
 
                 ent = get_object_entry(bnh, wnode->tgt, wnode->subrule,
                                        wnode->var_maps, 1);
                 ent->realized = 1;
                 ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
                 activate_subs(bnh, wnode);
                 break;
             case BNH_WORK_CHAIN:
@@ -2842,20 +2818,11 @@ void benesh_handle_work(struct benesh_handle *bnh)
                 announce_work(bnh, wnode);
             }
         }
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
         APEX_NAME_TIMER_START(5, "lock_work_bhwc");
         ABT_mutex_lock(bnh->work_mutex);
         APEX_TIMER_STOP(5);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
     }
     ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
 
 #ifdef BDEBUG
     if(handled) {
@@ -2881,8 +2848,13 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
         tgt_obj = rule->tgts[i];
         fq_tgt[i] =
             resolve_obj(tgt_obj, rule->nmappings, rule->map_names, tp_vars);
+        if(bnh->f_debug) {
+            DEBUG_OUT("target to realize for touchpoint: ");
+            print_pq_obj_nl(stderr, fq_tgt[i]);
+        }
         for(j = 0, found = 0; j < bnh->num_tgts; j++) {
             if(match_target_rule_fq(fq_tgt[i], &bnh->tgts[j], &map)) {
+                DEBUG_OUT(" resolving with target rule %i\n", j);
                 tgt_rule = &bnh->tgts[j];
                 found = 1;
                 break;
@@ -2897,7 +2869,11 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
         map_vals = malloc(sizeof(*map_vals) * tgt_rule->num_vars);
         for(j = 0; j < tgt_rule->num_vars; j++) {
             map_vals[j] = atoi(map[j]);
+            DEBUG_OUT("  %s => %" PRIu64 "\n", tgt_rule->tgt_vars[j], map_vals[j]);
         }
+        // There's no ordering dependency to target generation in a touchpoint rule,
+        //  so the different targets should be being generated in parallel, not series.
+        //  However, so far we only ever have one target per touchpoint.
         while(!object_realized(bnh, tgt_rule, map_vals)) {
             benesh_handle_work(bnh);
         }
@@ -2920,8 +2896,9 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     struct tpoint_rule **rulep = &tph->rules;
     uint64_t *values;
     int found = 0;
+    int i;
 
-    // fprintf(stderr, "%s start func timer\n", __func__);
+    DEBUG_OUT("starting touchpoint processing for %s\n", tpname);
     APEX_FUNC_TIMER_START(benesh_tpoint);
 
     tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
@@ -2931,11 +2908,18 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
         rule = &tph->rules[rule_id];
         if(rule->rule && rule->source &&
            match_rule(rule, tk_tpoint, tkcnt, &values)) {
+            DEBUG_OUT(" matched rule %i, with mappings: \n", rule_id);
+            if(bnh->f_debug) {
+                for(i = 0; i < rule->nmappings; i++) {
+                    DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i], values[i]); 
+                }
+            }
             announce.rule_id = rule_id;
             announce.comp_id = bnh->comp_id;
             announce.tp_vars = values;
             APEX_NAME_TIMER_START(2, "ekt_tell_tpoint");
             ekt_tell(tph->ekth, NULL, tph->type, &announce);
+            DEBUG_OUT("announced touchpoint %s\n", tpname);
             APEX_TIMER_STOP(2);
             found = 1;
             break;
@@ -2944,16 +2928,12 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     } while(rule->rule);
     APEX_TIMER_STOP(1);
 
-    // fprintf(stderr, "announced tpoint\n");
 
     while(!tpoint_finished(bnh, rule, values)) {
         benesh_handle_work(bnh);
     }
 
-#ifdef BDEBUG
-    fprintf(stderr, "rank %i finished touchpoint processing for %s\n",
-            bnh->rank, tpname);
-#endif /* BDEBUG */
+    DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
 
     if(!found) {
         fprintf(stderr,
@@ -2962,7 +2942,6 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
                 bnh->name, tpname, bnh->comps[bnh->comp_id].name);
     }
 
-    // fprintf(stderr, "%s stopping func timer\n", __func__);
     APEX_TIMER_STOP(0);
 }
 
