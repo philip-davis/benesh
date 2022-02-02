@@ -7,5 +7,5 @@ Description: declarative semantics for in-situ workflows
 Version: @benesh_VERSION@
 
 Requires: dspaces ekt argobots @NEED_APEX@
-Libs: -L${libdir} -lbenesh
+Libs: -L${libdir} -lbenesh -lbenesh_parser
 Cflags: -I${includedir}
