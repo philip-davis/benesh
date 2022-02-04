@@ -143,11 +143,9 @@ id  [A-Za-z_][A-Za-z0-9_]*
     return(DASG);
 }
 <normal>\[\[ {
-
     return(OEXPR);
 }
 <normal>\]\] {
-
     BEGIN(obj); // handle objparts that are just integers
     return(CLEXPR);
 }
@@ -176,7 +174,6 @@ id  [A-Za-z_][A-Za-z0-9_]*
     return(COMP);
 }
 <normal>{id}    {
-
     lvalp->str = malloc(strlen(yytext)+1);
     strcpy(lvalp->str, yytext);
     BEGIN(obj); // handle objparts that are just integers
@@ -206,7 +203,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
 
         We want this to instead tokenize to
             ID '.' ID '.' ICONST
-        Which requires contextual awareness that we
+        Which requires contextual awareness
     */
 <obj>\n  {
 
@@ -222,13 +219,16 @@ id  [A-Za-z_][A-Za-z0-9_]*
     BEGIN(normal);
     return(OEXPR);
 }
+<obj>\]\] {
+    BEGIN(normal);
+    return(CLEXPR);
+}
 <obj>[:=@<>\(\)\[\],%{+] {
 
     BEGIN(normal);
     return(yytext[0]);
 }
 <obj>[.}] {
-
     return(yytext[0]);
 }
 <obj>{id}    {

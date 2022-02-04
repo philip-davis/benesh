@@ -234,7 +234,7 @@ struct benesh_handle {
     int f_debug;
 };
 
-static int benesh_get_ipqx_val(struct xc_pqexpr *pqx);
+static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings, char **map_names, uint64_t *map_vals, int *val);
 static int match_target_rule(struct xc_list_node *obj, struct wf_target *tgt);
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
                                 char ***map);
@@ -246,7 +246,7 @@ struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
                          int comp_id, int *var_id);
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
 
-struct pq_obj *resolve_obj(struct xc_list_node *obj, int nmappings,
+struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, int nmappings,
                            char **map_names, uint64_t *vals)
 {
     struct pq_obj *res_obj;
@@ -281,14 +281,25 @@ struct pq_obj *resolve_obj(struct xc_list_node *obj, int nmappings,
             }
             break;
         case XC_NODE_PQX:
-            ival = benesh_get_ipqx_val(node->decl);
-            str_len = sprintf(i_str, "%i", ival);
-            res_obj->val[i] = malloc(str_len + 1);
-            sprintf(res_obj->val[i], "%i", ival);
+            if(benesh_get_ipqx_val(node->decl, nmappings, map_names, vals, &ival) < 0) {
+                res_obj->val[i] = strdup("<err>");
+            } else {
+                str_len = sprintf(i_str, "%i", ival);
+                res_obj->val[i] = malloc(str_len + 1);
+                sprintf(res_obj->val[i], "%i", ival);
+            }
             break;
         default:
             fprintf(stderr, "WARNING: unknown node type during resolution.\n");
         }
+    }
+
+    if(bnh->f_debug) {
+        DEBUG_OUT("resolved object: %s", res_obj->val[0]); 
+        for(i = 1; i < res_obj->len; i++) {
+            fprintf(stderr, ".%s", res_obj->val[i]);
+        }
+        fprintf(stderr, "\n");
     }
 
     return (res_obj);
@@ -769,15 +780,12 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
         obj_work_init->announce = 0;
         dep_tgts = malloc(sizeof(*dep_tgts) * tgt_rule->ndep);
         dep_met = 1;
+        DEBUG_OUT("checking dependencies\n");
         for(i = 0; i < tgt_rule->ndep; i++) {
-            dep_tgts[i] = resolve_obj(tgt_rule->deps[i], tgt_rule->num_vars,
+            dep_tgts[i] = resolve_obj(bnh, tgt_rule->deps[i], tgt_rule->num_vars,
                                       tgt_rule->tgt_vars, map_vals);
             if(!schedule_target(bnh, dep_tgts[i])) {
-#ifdef BDEBUG
-                fprintf(stderr, "missing dependency ");
-                print_pq_obj(stderr, dep_tgts[i]);
-                fprintf(stderr, "\n");
-#endif /* BDEBUG */
+                DEBUG_OUT(" dependency %i not realized yet.\n", i);
                 dep_met = 0;
                 dep_tgt_rule =
                     find_target_rule(bnh, dep_tgts[i], &dep_map_vals);
@@ -933,25 +941,16 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
     fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
     for(i = 0; i < rule->num_tgts; i++) {
         tgt_obj = rule->tgts[i];
-        fq_tgts[i] = resolve_obj(tgt_obj, rule->nmappings, rule->map_names,
+        fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names,
                                  tpoint->tp_vars);
 // This is a rather large critical section, and it blocks progress
 // handling.
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
         APEX_NAME_TIMER_START(1, "work_lock_twa");
         ABT_mutex_lock(bnh->work_mutex);
         APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
         schedule_target(bnh, fq_tgts[i]);
         ABT_cond_signal(bnh->work_cond);
         ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
     }
     APEX_TIMER_STOP(0);
     return 0;
@@ -1483,16 +1482,57 @@ static void benesh_init_vars(struct benesh_handle *bnh)
     free(varnodes);
 }
 
-static int benesh_get_ipqx_val(struct xc_pqexpr *pqx)
+static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings, char **map_names, uint64_t *map_vals, int *val)
 {
+    // TODO: extend!!!
+/*
     if(pqx->type != XC_PQ_INT) {
         fprintf(
             stderr,
             "ERROR: tried to get integer value of non-integer expression.\n");
-        return 0;
+        return(-1);
     }
 
     return (*(int *)pqx->val);
+    *val = 
+
+    return(0);
+*/
+    int lval, rval, sign = 1;
+    int i;
+
+    switch(pqx->type) {
+        case XC_PQ_INT:
+            *val = *(int *)pqx->val;
+            return(0);
+        case XC_PQ_REAL:
+            fprintf(stderr, "ERROR: expected integer in expression, saw real.\n");
+            return(-1);
+        case XC_PQ_SUB:
+            sign = -1;
+        case XC_PQ_ADD:
+            if((benesh_get_ipqx_val(pqx->lside, nmappings, map_names, map_vals, &lval) == 0) &&
+                    (benesh_get_ipqx_val(pqx->rside, nmappings, map_names, map_vals, &rval) == 0)) {
+                *val = lval + (sign * rval);
+                return(0);
+            } else {
+                return(-1);
+            }
+        case XC_PQ_VAR:
+            for(i = 0; i < nmappings; i++) {
+                if(strcmp(map_names[i], pqx->val) == 0) {
+                    *val = map_vals[i];
+                    return(0);
+                }
+            }
+            fprintf(stderr, "unknown mapping '%s' in expression.\n", (char *)pqx->val);
+            return(-1);
+        default:
+            fprintf(stderr, "ERROR: unknown expression type!\n");
+            return(-1);
+    }
+
+    return(0);
 }
 
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
@@ -1612,7 +1652,10 @@ static int match_target_rule(struct xc_list_node *obj, struct wf_target *tgt)
             }
             break;
         case XC_NODE_PQX:
-            ival = benesh_get_ipqx_val(node->decl);
+            if(benesh_get_ipqx_val(node->decl, 0, NULL, NULL, &ival) < 0) {
+                match = 0;
+                break;
+            }
             if(var_loc == -1) {
                 tval = atoi(tgt->obj_name[i]);
                 if(ival != tval) {
@@ -2556,7 +2599,7 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
     dep_tgts = malloc(sizeof(*dep_tgts) * tgt->ndep);
     for(i = 0; i < tgt->ndep; i++) {
         dep_tgts[i] =
-            resolve_obj(tgt->deps[i], tgt->num_vars, tgt->tgt_vars, map_vals);
+            resolve_obj(bnh, tgt->deps[i], tgt->num_vars, tgt->tgt_vars, map_vals);
         dep_rule = find_target_rule(bnh, dep_tgts[i], &dep_map_vals);
         if(!object_realized(bnh, dep_rule, dep_map_vals)) {
             if(bnh->f_debug) {
@@ -2847,7 +2890,7 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
     for(i = 0; i < rule->num_tgts; i++) {
         tgt_obj = rule->tgts[i];
         fq_tgt[i] =
-            resolve_obj(tgt_obj, rule->nmappings, rule->map_names, tp_vars);
+            resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names, tp_vars);
         if(bnh->f_debug) {
             DEBUG_OUT("target to realize for touchpoint: ");
             print_pq_obj_nl(stderr, fq_tgt[i]);
@@ -2979,7 +3022,6 @@ int benesh_fini(struct benesh_handle *bnh)
     if(bnh->rank == 0) {
         fprintf(stderr, "%s did ekt_fini\n", __func__);
     }
-    margo_set_log_level(bnh->mid, MARGO_LOG_TRACE);
     margo_finalize(bnh->mid);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
