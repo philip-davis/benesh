@@ -1,7 +1,7 @@
 #ifndef _XC_CONFIG_H
 #define _XC_CONFIG_H
 
-#include<mpi.h>
+#include <mpi.h>
 
 typedef enum xc_node_t {
     XC_NODE_VAR = 0,

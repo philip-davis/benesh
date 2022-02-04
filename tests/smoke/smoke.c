@@ -50,12 +50,10 @@ int main(int argc, char **argv)
     benesh_get_var_domain(bnh, "u", &dom_name, &ndim, &lb, &ub);
     printf("dom_name = %s\n", dom_name);
 
-
     grid_points = 8;
     grid_dims = ((*ub - *lb) / comm_size);
     grid_offset = grid_dims * rank;
     benesh_bind_domain(bnh, dom_name, &grid_offset, &grid_dims, &grid_points);
-
 
     if(strcmp(argv[1], "tptest") == 0) {
         fprintf(stderr, "I am sim\n");

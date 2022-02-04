@@ -34,8 +34,8 @@
 
 #define DEBUG_OUT(...)                                                         \
     do {                                                                       \
-        if(bnh->f_debug) {                                                  \
-            fprintf(stderr, "Rank %i: %s, line %i (%s): ", bnh->rank,       \
+        if(bnh->f_debug) {                                                     \
+            fprintf(stderr, "Rank %i: %s, line %i (%s): ", bnh->rank,          \
                     __FILE__, __LINE__, __func__);                             \
             fprintf(stderr, __VA_ARGS__);                                      \
         }                                                                      \
@@ -234,7 +234,8 @@ struct benesh_handle {
     int f_debug;
 };
 
-static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings, char **map_names, uint64_t *map_vals, int *val);
+static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
+                               char **map_names, uint64_t *map_vals, int *val);
 static int match_target_rule(struct xc_list_node *obj, struct wf_target *tgt);
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
                                 char ***map);
@@ -246,8 +247,8 @@ struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
                          int comp_id, int *var_id);
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
 
-struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, int nmappings,
-                           char **map_names, uint64_t *vals)
+struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
+                           int nmappings, char **map_names, uint64_t *vals)
 {
     struct pq_obj *res_obj;
     int obj_len = xc_obj_len(obj);
@@ -281,7 +282,8 @@ struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, 
             }
             break;
         case XC_NODE_PQX:
-            if(benesh_get_ipqx_val(node->decl, nmappings, map_names, vals, &ival) < 0) {
+            if(benesh_get_ipqx_val(node->decl, nmappings, map_names, vals,
+                                   &ival) < 0) {
                 res_obj->val[i] = strdup("<err>");
             } else {
                 str_len = sprintf(i_str, "%i", ival);
@@ -295,7 +297,7 @@ struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, 
     }
 
     if(bnh->f_debug) {
-        DEBUG_OUT("resolved object: %s", res_obj->val[0]); 
+        DEBUG_OUT("resolved object: %s", res_obj->val[0]);
         for(i = 1; i < res_obj->len; i++) {
             fprintf(stderr, ".%s", res_obj->val[i]);
         }
@@ -488,7 +490,7 @@ void print_pq_obj(FILE *stream, struct pq_obj *pq)
 
 void print_pq_obj_nl(FILE *stream, struct pq_obj *pq)
 {
-     int i;
+    int i;
 
     if(pq->len < 1) {
         fprintf(stream, "(empty)");
@@ -548,7 +550,6 @@ void print_object_nl(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
     fprintf(stream, "\n");
 }
 
-
 void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
                     uint64_t *map_vals)
 {
@@ -569,9 +570,9 @@ void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
     if(bnh->f_debug) {
         DEBUG_OUT("  rule id = %li\n", rule - bnh->tgts);
         for(i = 0; i < rule->num_vars; i++) {
-            DEBUG_OUT("   %s => %" PRIu64 "\n",rule->tgt_vars[i],  map_vals[i]);
+            DEBUG_OUT("   %s => %" PRIu64 "\n", rule->tgt_vars[i], map_vals[i]);
         }
-    } 
+    }
     if(!ent) {
         fprintf(
             stderr,
@@ -782,8 +783,9 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
         dep_met = 1;
         DEBUG_OUT("checking dependencies\n");
         for(i = 0; i < tgt_rule->ndep; i++) {
-            dep_tgts[i] = resolve_obj(bnh, tgt_rule->deps[i], tgt_rule->num_vars,
-                                      tgt_rule->tgt_vars, map_vals);
+            dep_tgts[i] =
+                resolve_obj(bnh, tgt_rule->deps[i], tgt_rule->num_vars,
+                            tgt_rule->tgt_vars, map_vals);
             if(!schedule_target(bnh, dep_tgts[i])) {
                 DEBUG_OUT(" dependency %i not realized yet.\n", i);
                 dep_met = 0;
@@ -875,7 +877,7 @@ static int work_watch(void *work_v, void *bnh_v)
            sizeof(*wnode.var_maps) * wnode.tgt->num_vars);
 
     DEBUG_OUT("received work for target %" PRIu32 ", subrule %" PRId32 "\n",
-            work->tgt_id, work->subrule_id);
+              work->tgt_id, work->subrule_id);
     if(bnh->f_debug) {
         for(i = 0; i < wnode.tgt->num_vars; i++) {
             DEBUG_OUT(" tgt_var %i = %" PRIu64 "\n", i, wnode.var_maps[i]);
@@ -895,7 +897,6 @@ static int work_watch(void *work_v, void *bnh_v)
     }
     ent->realized = 1;
     DEBUG_OUT(" realized entry %p\n", (void *)ent);
-
 
     ABT_mutex_unlock(bnh->db_mutex);
     activate_subs(bnh, &wnode);
@@ -943,8 +944,8 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         tgt_obj = rule->tgts[i];
         fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names,
                                  tpoint->tp_vars);
-// This is a rather large critical section, and it blocks progress
-// handling.
+        // This is a rather large critical section, and it blocks progress
+        // handling.
         APEX_NAME_TIMER_START(1, "work_lock_twa");
         ABT_mutex_lock(bnh->work_mutex);
         APEX_TIMER_STOP(1);
@@ -1482,57 +1483,61 @@ static void benesh_init_vars(struct benesh_handle *bnh)
     free(varnodes);
 }
 
-static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings, char **map_names, uint64_t *map_vals, int *val)
+static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
+                               char **map_names, uint64_t *map_vals, int *val)
 {
     // TODO: extend!!!
-/*
-    if(pqx->type != XC_PQ_INT) {
-        fprintf(
-            stderr,
-            "ERROR: tried to get integer value of non-integer expression.\n");
-        return(-1);
-    }
+    /*
+        if(pqx->type != XC_PQ_INT) {
+            fprintf(
+                stderr,
+                "ERROR: tried to get integer value of non-integer
+       expression.\n"); return(-1);
+        }
 
-    return (*(int *)pqx->val);
-    *val = 
+        return (*(int *)pqx->val);
+        *val =
 
-    return(0);
-*/
+        return(0);
+    */
     int lval, rval, sign = 1;
     int i;
 
     switch(pqx->type) {
-        case XC_PQ_INT:
-            *val = *(int *)pqx->val;
-            return(0);
-        case XC_PQ_REAL:
-            fprintf(stderr, "ERROR: expected integer in expression, saw real.\n");
-            return(-1);
-        case XC_PQ_SUB:
-            sign = -1;
-        case XC_PQ_ADD:
-            if((benesh_get_ipqx_val(pqx->lside, nmappings, map_names, map_vals, &lval) == 0) &&
-                    (benesh_get_ipqx_val(pqx->rside, nmappings, map_names, map_vals, &rval) == 0)) {
-                *val = lval + (sign * rval);
-                return(0);
-            } else {
-                return(-1);
+    case XC_PQ_INT:
+        *val = *(int *)pqx->val;
+        return (0);
+    case XC_PQ_REAL:
+        fprintf(stderr, "ERROR: expected integer in expression, saw real.\n");
+        return (-1);
+    case XC_PQ_SUB:
+        sign = -1;
+    case XC_PQ_ADD:
+        if((benesh_get_ipqx_val(pqx->lside, nmappings, map_names, map_vals,
+                                &lval) == 0) &&
+           (benesh_get_ipqx_val(pqx->rside, nmappings, map_names, map_vals,
+                                &rval) == 0)) {
+            *val = lval + (sign * rval);
+            return (0);
+        } else {
+            return (-1);
+        }
+    case XC_PQ_VAR:
+        for(i = 0; i < nmappings; i++) {
+            if(strcmp(map_names[i], pqx->val) == 0) {
+                *val = map_vals[i];
+                return (0);
             }
-        case XC_PQ_VAR:
-            for(i = 0; i < nmappings; i++) {
-                if(strcmp(map_names[i], pqx->val) == 0) {
-                    *val = map_vals[i];
-                    return(0);
-                }
-            }
-            fprintf(stderr, "unknown mapping '%s' in expression.\n", (char *)pqx->val);
-            return(-1);
-        default:
-            fprintf(stderr, "ERROR: unknown expression type!\n");
-            return(-1);
+        }
+        fprintf(stderr, "unknown mapping '%s' in expression.\n",
+                (char *)pqx->val);
+        return (-1);
+    default:
+        fprintf(stderr, "ERROR: unknown expression type!\n");
+        return (-1);
     }
 
-    return(0);
+    return (0);
 }
 
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
@@ -1920,7 +1925,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
     const char *envdebug = getenv("BENESH_DEBUG");
-    
+
     if(envdebug) {
         bnh->f_debug = 1;
     }
@@ -2141,8 +2146,7 @@ void publish_var(struct benesh_handle *bnh, struct wf_var *var,
         strcat(ds_var_name, num_str);
     }
 
-    DEBUG_OUT("publishing %s along domain %s\n", ds_var_name,
-            dom->full_name);
+    DEBUG_OUT("publishing %s along domain %s\n", ds_var_name, dom->full_name);
 
     lb = malloc(sizeof(*lb) * dom->dim);
     ub = malloc(sizeof(*ub) * dom->dim);
@@ -2154,7 +2158,12 @@ void publish_var(struct benesh_handle *bnh, struct wf_var *var,
             lb[i] = 0;
         }
         ub[i] = lb[i] + dom->l_grid_pts[i] - 1;
-        DEBUG_OUT("geometry for dimension %i: grid_dims = %lf, grid_pts = %" PRIu64 ", pitch = %lf, offset = %lf, overlap_offset = %lf, lb = %" PRIu64 ", ub = %" PRIu64 "\n", i, dom->l_grid_dims[i], dom->l_grid_pts[i], pitch, dom->l_offset[i], ol_off_lb[i], lb[i], ub[i]);
+        DEBUG_OUT(
+            "geometry for dimension %i: grid_dims = %lf, grid_pts = %" PRIu64
+            ", pitch = %lf, offset = %lf, overlap_offset = %lf, lb = %" PRIu64
+            ", ub = %" PRIu64 "\n",
+            i, dom->l_grid_dims[i], dom->l_grid_pts[i], pitch, dom->l_offset[i],
+            ol_off_lb[i], lb[i], ub[i]);
     }
 
 // TODO: more sophisticated type handling, version control
@@ -2542,7 +2551,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         ABT_mutex_unlock(bnh->data_mutex);
         DEBUG_OUT("waiting for dspaces_check_sub\n");
         APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
-        
+
         ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
               DSPACES_SUB_DONE;
         APEX_TIMER_STOP(2);
@@ -2598,8 +2607,8 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
 
     dep_tgts = malloc(sizeof(*dep_tgts) * tgt->ndep);
     for(i = 0; i < tgt->ndep; i++) {
-        dep_tgts[i] =
-            resolve_obj(bnh, tgt->deps[i], tgt->num_vars, tgt->tgt_vars, map_vals);
+        dep_tgts[i] = resolve_obj(bnh, tgt->deps[i], tgt->num_vars,
+                                  tgt->tgt_vars, map_vals);
         dep_rule = find_target_rule(bnh, dep_tgts[i], &dep_map_vals);
         if(!object_realized(bnh, dep_rule, dep_map_vals)) {
             if(bnh->f_debug) {
@@ -2607,8 +2616,9 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
                 print_pq_obj_nl(stderr, dep_tgts[i]);
                 DEBUG_OUT(" dep rule id = %li\n", dep_rule - bnh->tgts);
                 for(j = 0; j < dep_rule->num_vars; j++) {
-                    DEBUG_OUT("   %s => %" PRIu64 "\n", dep_rule->tgt_vars[j], dep_map_vals[j]);
-                } 
+                    DEBUG_OUT("   %s => %" PRIu64 "\n", dep_rule->tgt_vars[j],
+                              dep_map_vals[j]);
+                }
             }
             free(dep_map_vals);
             free(dep_tgts);
@@ -2889,8 +2899,8 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
     APEX_FUNC_TIMER_START(tpoint_finished);
     for(i = 0; i < rule->num_tgts; i++) {
         tgt_obj = rule->tgts[i];
-        fq_tgt[i] =
-            resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names, tp_vars);
+        fq_tgt[i] = resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names,
+                                tp_vars);
         if(bnh->f_debug) {
             DEBUG_OUT("target to realize for touchpoint: ");
             print_pq_obj_nl(stderr, fq_tgt[i]);
@@ -2912,11 +2922,13 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
         map_vals = malloc(sizeof(*map_vals) * tgt_rule->num_vars);
         for(j = 0; j < tgt_rule->num_vars; j++) {
             map_vals[j] = atoi(map[j]);
-            DEBUG_OUT("  %s => %" PRIu64 "\n", tgt_rule->tgt_vars[j], map_vals[j]);
+            DEBUG_OUT("  %s => %" PRIu64 "\n", tgt_rule->tgt_vars[j],
+                      map_vals[j]);
         }
-        // There's no ordering dependency to target generation in a touchpoint rule,
-        //  so the different targets should be being generated in parallel, not series.
-        //  However, so far we only ever have one target per touchpoint.
+        // There's no ordering dependency to target generation in a touchpoint
+        // rule,
+        //  so the different targets should be being generated in parallel, not
+        //  series. However, so far we only ever have one target per touchpoint.
         while(!object_realized(bnh, tgt_rule, map_vals)) {
             benesh_handle_work(bnh);
         }
@@ -2954,7 +2966,8 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
             DEBUG_OUT(" matched rule %i, with mappings: \n", rule_id);
             if(bnh->f_debug) {
                 for(i = 0; i < rule->nmappings; i++) {
-                    DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i], values[i]); 
+                    DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i],
+                              values[i]);
                 }
             }
             announce.rule_id = rule_id;
@@ -2970,7 +2983,6 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
         rule_id++;
     } while(rule->rule);
     APEX_TIMER_STOP(1);
-
 
     while(!tpoint_finished(bnh, rule, values)) {
         benesh_handle_work(bnh);
