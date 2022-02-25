@@ -189,7 +189,7 @@ struct xc_target {
 struct xc_varver {
     const char *var_name;
     struct xc_conf_var *var;
-    long ver;
+    struct xc_list_node *ver;
 };
 
 struct xc_vmap {
@@ -236,7 +236,7 @@ struct xc_target *xc_new_tgtrule(struct xc_list_node *tgtobj,
 struct xc_tprule *xc_new_tprule(struct xc_component *comp,
                                 struct xc_list_node *tp,
                                 struct xc_list_node *obj);
-struct xc_varver *xc_new_varver(const char *var_name, long ver);
+struct xc_varver *xc_new_varver(const char *var_name, struct xc_list_node *ver);
 struct xc_vmap *xc_new_vmap(const char *param, struct xc_list_node *vals);
 
 int xc_unify_method(struct xc_list_node *list, struct xc_list_node *mobj);

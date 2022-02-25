@@ -933,7 +933,7 @@ struct xc_target *xc_new_tgtrule(struct xc_list_node *tgtobj,
     return (tgt);
 }
 
-struct xc_varver *xc_new_varver(const char *var_name, long ver)
+struct xc_varver *xc_new_varver(const char *var_name, struct xc_list_node *ver)
 {
     struct xc_varver *vv = malloc(sizeof(*vv));
 

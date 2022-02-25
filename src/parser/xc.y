@@ -301,7 +301,7 @@ cardinality :
 methoddecl :
     ID '(' arglist ')' ':' NEWLINE INDENT methodblk OUTDENT {
         struct xc_list_node *mnode = $8;
-        struct xc_list_node *in_var, *out_var;
+        struct xc_list_node *in_var = NULL, *out_var = NULL;
         int infound = 0, outfound = 0;
         while(mnode) {
             struct xc_msub *msub = mnode->decl;
@@ -896,7 +896,7 @@ varverlist :
     ;
 
 varver :
-    ID '.' ICONST {
+    ID '.' pqobj {
         $$ = xc_new_varver($1, $3);
     }
     ;

@@ -7,19 +7,19 @@
 
 #include "benesh.h"
 
-int do_analyze(benesh_handle bnh, benesh_arg arg)
+int do_analyze(benesh_app_id bnh, benesh_arg arg)
 {
     fprintf(stderr, "%s\n", __func__);
     return (0);
 }
 
-int do_calc_incr(benesh_handle bnh, benesh_arg arg)
+int do_calc_incr(benesh_app_id bnh, benesh_arg arg)
 {
     fprintf(stderr, "%s\n", __func__);
     return (0);
 }
 
-int do_advance(benesh_handle bnh, benesh_arg arg)
+int do_advance(benesh_app_id bnh, benesh_arg arg)
 {
     fprintf(stderr, "%s\n", __func__);
     return (0);
@@ -27,7 +27,7 @@ int do_advance(benesh_handle bnh, benesh_arg arg)
 
 int main(int argc, char **argv)
 {
-    benesh_handle bnh;
+    benesh_app_id bnh;
     int rank;
     int comm_size;
     int ndim;
@@ -45,7 +45,7 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    benesh_init(argv[1], "smoke.xc", MPI_COMM_WORLD, &bnh);
+    benesh_init(argv[1], "smoke.xc", MPI_COMM_WORLD, 1, &bnh);
 
     benesh_get_var_domain(bnh, "u", &dom_name, &ndim, &lb, &ub);
     printf("dom_name = %s\n", dom_name);

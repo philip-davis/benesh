@@ -7,8 +7,8 @@ include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-bison_target(xcparse xc.y ${CMAKE_CURRENT_BINARY_DIR}/xc_parse.c)
-flex_target(xclex xc.l ${CMAKE_CURRENT_BINARY_DIR}/xc_lex.c
+BISON_TARGET(xcparse xc.y ${CMAKE_CURRENT_BINARY_DIR}/xc_parse.c)
+FLEX_TARGET(xclex xc.l ${CMAKE_CURRENT_BINARY_DIR}/xc_lex.c
             COMPILE_FLAGS "-Pxc_ -i"
 )
 ADD_FLEX_BISON_DEPENDENCY(xclex xcparse)
@@ -28,4 +28,9 @@ target_include_directories(parser PUBLIC
 set_target_properties(parser PROPERTIES
   OUTPUT_NAME benesh_parser
   C_STANDARD 99
+)
+
+install(TARGETS parser
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
 )

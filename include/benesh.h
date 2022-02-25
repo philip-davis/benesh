@@ -4,12 +4,16 @@
 #include <mpi.h>
 #include <stdint.h>
 
-typedef struct benesh_handle *benesh_handle;
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+typedef struct benesh_handle *benesh_app_id;
 typedef void *benesh_arg;
 
-typedef int (*benesh_method)(benesh_handle, benesh_arg);
+typedef int (*benesh_method)(benesh_app_id, benesh_arg);
 
-int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
+int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
                 struct benesh_handle **bnh);
 
 int benesh_bind_method(struct benesh_handle *bnh, const char *name,
@@ -29,5 +33,9 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
 void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name);
 
 double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name);
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif /* _BENESH_H */

@@ -1,6 +1,8 @@
 #ifndef _BENESH_H_
 #define _BENESH_H_
 
+#define _GNU_SOURCE
+
 #include "benesh.h"
 #include "ihash.h"
 #include "xc_config.h"
@@ -111,7 +113,7 @@ struct obj_entry {
 
 struct var_ver {
     int var_id;
-    long ver;
+    struct xc_list_node *ver;
 };
 
 struct sub_rule {
@@ -241,6 +243,11 @@ static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
                                 char ***map);
 void print_work_node(FILE *stream, struct benesh_handle *bnh,
                      struct work_node *wnode);
+void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
+                     struct work_node *wnode);
+
+
+
 int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
 struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
 struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
@@ -305,6 +312,40 @@ struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
     }
 
     return (res_obj);
+}
+
+char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
+{
+    char *res;
+    int i;
+
+    if(tgt->obj_name[pos][0] == '%') {
+        for(i = 0; i < tgt->num_vars; i++) {
+            if(strcmp(&tgt->obj_name[pos][1], tgt->tgt_vars[i]) == 0) {
+                asprintf(&res, "%zi", maps[i]);
+                return(res);
+            }
+        }
+    } else {
+        return(strdup(tgt->obj_name[pos]));
+    }
+}
+
+char *wf_target_tostr(struct wf_target *tgt, uint64_t *maps)
+{
+    char *str1, *str2, *res;
+    int i;
+
+    res = obj_atom_tostr(tgt, maps, 0);
+    for(i = 1; i < tgt->name_len; i++) {
+        str1 = res;
+        str2 = obj_atom_tostr(tgt, maps, i);
+        asprintf(&res, "%s.%s", str1, str2);
+        free(str1);
+        free(str2);
+    }
+
+    return(res);
 }
 
 struct obj_entry *get_object_entry(struct benesh_handle *bnh,
@@ -440,7 +481,11 @@ int object_realized(struct benesh_handle *bnh, struct wf_target *rule,
         ABT_mutex_unlock(bnh->db_mutex);
         return 1;
     }
-    DEBUG_OUT("object %p not realized\n", (void *)ent);
+    if(bnh->f_debug) {
+        char *obj_name = wf_target_tostr(rule, map_vals);
+        DEBUG_OUT("object %s (%p) not realized\n", obj_name, (void *)ent);
+        free(obj_name);
+    }
     ABT_mutex_unlock(bnh->db_mutex);
 
     return 0;
@@ -620,11 +665,10 @@ void benesh_make_active(struct benesh_handle *bnh, struct work_node *wnode)
 
     wnode->prev = NULL;
     wnode->next = bnh->wqueue_head;
-#ifdef BDEBUG
-    fprintf(stderr, "making active ");
-    print_work_node(stderr, bnh, wnode);
-    fprintf(stderr, "\n");
-#endif /* BDEBUG */
+    if(bnh->f_debug) { 
+        DEBUG_OUT("making active ");
+        print_work_node_nl(stderr, bnh, wnode);
+    }
     if(bnh->wqueue_head) {
         head = bnh->wqueue_head;
         head->prev = wnode;
@@ -643,9 +687,7 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
     struct obj_entry *ent;
     int i;
 
-#ifdef BDEBUG
-    fprintf(stderr, "scheduling subrules for rule %li\n", tgt - bnh->tgts);
-#endif /* BDEBUG */
+    DEBUG_OUT("scheduling subrules for rule %li (%i subrules)\n", tgt - bnh->tgts, tgt->num_subrules);
 
     chain = NULL;
     // lock object database and activity queue for this - dep could come in
@@ -653,34 +695,31 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
     for(i = 0; i < tgt->num_subrules; i++) {
         subrule = &tgt->subrule[i];
         if(subrule->comp_id == bnh->comp_id) {
+            DEBUG_OUT("I have work for target %li, subrule %i\n", tgt - bnh->tgts, i+1);
             if(chain == NULL) {
+                DEBUG_OUT("This subrule is the start of a chain\n");
                 chain = calloc(1, sizeof(*chain));
                 chain->type = BNH_WORK_CHAIN;
 // NOTE: subtargets start at 1, the target is 0, so decrement
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
                 ABT_mutex_lock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
-
                 ent = get_object_entry(bnh, tgt, i, map_vals, 1);
                 // TODO: delay making active until we're all done, to shrink
                 // critical block
                 if(ent->realized) {
                     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-                    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
                     // we already have the work lock
+                    DEBUG_OUT("Previous subrule already realized; the new chain should go in the work queue immediately.\n");
                     benesh_make_active(bnh, chain);
                 } else {
                     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-                    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
                     // i == 0 means object initialization
+                    if(bnh->f_debug) {
+                        if(i) {
+                            DEBUG_OUT("Subscribe the new chain to target %li, subrule %i\n",  tgt - bnh->tgts, i);
+                        } else {
+                            DEBUG_OUT("Subscribe the new chain to target %li initiation\n",  tgt - bnh->tgts);
+                        }
+                    }
                     sub_target(bnh, tgt, (i ? i : -1), map_vals, chain);
                 }
                 wnodep = &chain->link;
@@ -708,9 +747,8 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
                 - bnh->tgts, i+1); wnode->announce = 1;
                 }
                 */
-                if(i != tgt->num_subrules - 1) {
-                    wnode->announce = 1;
-                }
+                DEBUG_OUT("subrule %i should announce completion\n", wnode->subrule);
+                wnode->announce = 1;
                 chain = NULL;
             }
         }
@@ -857,12 +895,10 @@ static int work_watch(void *work_v, void *bnh_v)
         sleep(1);
     }
 
-#ifdef BDEBUG
-    fprintf(stderr,
+    DEBUG_OUT(
             "received work from comp %" PRIu32 ", tgt_id = %" PRIu32
             ", subrule = %" PRIu32 "\n",
             work->comp_id, work->tgt_id, work->subrule_id);
-#endif /* BDEBUG */
 
     if(work->comp_id == bnh->comp_id) {
         APEX_TIMER_STOP(0);
@@ -1920,11 +1956,12 @@ static int benesh_load_targets(struct benesh_handle *bnh)
 }
 
 int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
-                struct benesh_handle **handle)
+                int wait, struct benesh_handle **handle)
 {
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
     const char *envdebug = getenv("BENESH_DEBUG");
+    int i;
 
     if(envdebug) {
         bnh->f_debug = 1;
@@ -1965,7 +2002,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
     ABT_cond_create(&bnh->data_cond);
 
     benesh_load_config(bnh, conf);
-    APEX_NAME_TIMER_START(4, "benesh laod");
+    APEX_NAME_TIMER_START(4, "benesh loadd");
     DEBUG_OUT("initializing workflow variables...\n");
     benesh_init_vars(bnh);
     DEBUG_OUT("initializing workflow domain...\n");
@@ -1979,6 +2016,20 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
 
     bnsh_tpoint_init(bnh, rules, &bnh->tph);
     APEX_TIMER_STOP(4);
+
+    if(wait) {
+        if(bnh->rank == 0) {
+            DEBUG_OUT("waiting for bidirectional communication with other components.\n");
+            for(i = 0; i < bnh->comp_count; i++) {
+                if(strcmp(bnh->comps[i].app, bnh->name) != 0) {
+                    ekt_is_bidi(bnh->ekth, bnh->comps[i].app, 1);   
+                }     
+            }
+        }
+        MPI_Barrier(bnh->mycomm);
+    } else {
+        DEBUG_OUT("proceeding without waiting for other components.\n");
+    }
 
     bnh->ready = 1;
     DEBUG_OUT("ready for workflow processing.\n");
@@ -2008,6 +2059,30 @@ void print_work_node(FILE *stream, struct benesh_handle *bnh,
         fprintf(stream, "ERROR! Unknown work type in print_work_node");
     }
 }
+
+void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
+                     struct work_node *wnode)
+{
+    switch(wnode->type) {
+    case BNH_WORK_OBJ:
+        fprintf(stream, "%s of tgt %li",
+                ((wnode->subrule == 0) ? "realization" : "initialization"),
+                wnode->tgt - bnh->tgts);
+        break;
+    case BNH_WORK_RULE:
+        fprintf(stream, "execution of tgt %li, rule %i", wnode->tgt - bnh->tgts,
+                wnode->subrule);
+        break;
+    case BNH_WORK_CHAIN:
+        fprintf(stream, "running chain in tgt %li",
+                (wnode->link ? (wnode->link->tgt - bnh->tgts) : -1));
+        break;
+    default:
+        fprintf(stream, "ERROR! Unknown work type in print_work_node");
+    }
+    fprintf(stream, "\n");
+}
+
 
 struct work_node *deque_work(struct benesh_handle *bnh)
 {
@@ -2117,7 +2192,11 @@ void handle_method(struct benesh_handle *bnh, struct sub_rule *subrule)
     struct xc_expr *expr;
 
     mth = &bnh->mths[subrule->mth_id];
-    mth->method(bnh, mth->arg);
+    if(!mth->method) {
+        fprintf(stderr, "ERROR: no mapped function for method '%s'.\n", subrule->expr->minst->method->name);    
+    } else {
+        mth->method(bnh, mth->arg);
+    }
 }
 
 // Publishing once per transfer rule - need to collapse redundant.
@@ -2279,10 +2358,7 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     int i;
 
     APEX_FUNC_TIMER_START(handle_notify);
-#ifdef BDEBUG
-    fprintf(stderr, "received notification for target %li, subrule %i.\n",
-            ds->tgt - bnh->tgts, ds->subrule);
-#endif
+    DEBUG_OUT("received notification for target %li, subrule %i.\n", ds->tgt - bnh->tgts, ds->subrule);
 
     while(!bnh->ready) {
         // Change to wait condition
@@ -2297,12 +2373,15 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
         lub[i] = llb[i] + dom->l_grid_pts[i] - 1;
     }
 
+    DEBUG_OUT("checking whether we are blocking on these data yet.\n");
     ABT_mutex_lock(bnh->data_mutex);
     while(!ds->waiting) {
+        DEBUG_OUT("not blocking yet. Waiting...\n");
         ABT_cond_wait(bnh->data_cond, bnh->data_mutex);
     }
     ABT_mutex_unlock(bnh->data_mutex);
 
+    DEBUG_OUT("copying data in local buffers\n");
     // matrix_copy(var->buf, dom->dim, llb, lub, req->buf, ds->lb, ds->ub,
     //            sizeof(double));
     matrix_copy_interp(var->buf, dom->dim, llb, lub, req->buf, ds->lb, ds->ub,
@@ -2312,13 +2391,8 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     wnode.subrule = ds->subrule - 1; // the sub
     wnode.var_maps = ds->var_maps;
 
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
+    DEBUG_OUT("activating work object\n");
     ABT_mutex_lock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
 
     ent = get_object_entry(bnh, wnode.tgt, wnode.subrule, wnode.var_maps, 1);
     if(!ent) {
@@ -2339,15 +2413,12 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     }
     ent->realized = 1;
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
     activate_subs(bnh, &wnode);
 
     free(ds);
     APEX_TIMER_STOP(0);
 
-    return 0;
+    return(0);
 }
 
 static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
@@ -2572,18 +2643,23 @@ int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
     struct sub_rule *subrule = &tgt->subrule[wnode->subrule - 1];
     int result;
 
+    DEBUG_OUT("handling a subrule\n");
     APEX_FUNC_TIMER_START(handle_subrule);
     switch(subrule->type) {
     case BNH_SUBRULE_ASG:
+        DEBUG_OUT("subrule is an assignment\n");
         handle_asg(bnh, subrule);
         break;
     case BNH_SUBRULE_MTH:
+        DEBUG_OUT("subrule is a method\n");
         handle_method(bnh, subrule);
         break;
     case BNH_SUBRULE_PUB:
+        DEBUG_OUT("subrule is a publish event\n");
         handle_pub(bnh, wnode);
         break;
     case BNH_SUBRULE_SUB:
+        DEBUG_OUT("subrule is a subscribe event\n");
         return (check_sub(bnh, wnode));
     default:
         fprintf(stderr, "ERROR: unkown subrule type.\n");
@@ -2674,18 +2750,9 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
                 return (0);
             }
         }
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
         ABT_mutex_lock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
         benesh_make_active(bnh, link); // to catch announce
         ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "released work lock in %s\n", __func__);
-#endif
         break;
     default:
         fprintf(stderr, "ERROR: unkown work entry type.\n");
@@ -2702,86 +2769,68 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
     struct work_node *sub;
     int activated = 0;
 
+    DEBUG_OUT("activating subscribers to work item\n");
+
     APEX_FUNC_TIMER_START(activate_subs);
-#ifdef BDEBUG
-    switch(wnode->type) {
-    case BNH_WORK_OBJ:
-        fprintf(stderr, "activating subs of target %li %s\n",
+    if(bnh->f_debug) {
+        switch(wnode->type) {
+        case BNH_WORK_OBJ:
+            DEBUG_OUT("activating subs of target %li %s\n",
                 wnode->tgt - bnh->tgts,
                 ((wnode->subrule == 0) ? "realization" : "initiation"));
-        break;
-    case BNH_WORK_RULE:
-        fprintf(stderr, "activating subs of target %li, rule %i\n",
+            break;
+        case BNH_WORK_RULE:
+            DEBUG_OUT("activating subs of target %li, rule %i\n",
                 wnode->tgt - bnh->tgts, wnode->subrule);
-        break;
-    case BNH_WORK_CHAIN:
-        fprintf(stderr, "activating subs of a chain in target %li\n",
+            break;
+        case BNH_WORK_CHAIN:
+            DEBUG_OUT("activating subs of a chain in target %li\n",
                 wnode->tgt - bnh->tgts);
-        break;
-    case BNH_WORK_ANNOUNCE:
-        fprintf(stderr,
+            break;
+        case BNH_WORK_ANNOUNCE:
+            DEBUG_OUT(
                 "activating subs of received work with target %li, rule %i\n",
                 wnode->tgt - bnh->tgts, wnode->subrule);
-        break;
-    default:
-        fprintf(stderr, "ERROR: unknown work type in activate_subs\n");
+            break;
+        default:
+            DEBUG_OUT("ERROR: unknown work type in activate_subs\n");
+        }
     }
-#endif
 
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
     APEX_NAME_TIMER_START(1, "db_lock_asa");
     ABT_mutex_lock(bnh->db_mutex);
     APEX_TIMER_STOP(1);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
+
+    DEBUG_OUT("got db lock\n");
 
     ent = get_object_entry(bnh, wnode->tgt, wnode->subrule, wnode->var_maps, 0);
 
     if(ent) {
+        DEBUG_OUT("updating object registry\n");
         for(snode = ent->subs; snode; snode = snode->next) {
             if(!snode->done) {
                 sub = snode->sub;
                 sub->deps--;
                 if(sub->deps) {
-                    // fprintf(stderr, "still waiting on %i subs\n", sub->deps);
                     continue;
                 }
                 snode->done = 1;
                 ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Released db lock in %s\n", __func__);
-                fprintf(stderr, "getting work lock in %s\n", __func__);
-#endif
                 APEX_NAME_TIMER_START(2, "work_lock_asa");
                 ABT_mutex_lock(bnh->work_mutex);
                 APEX_TIMER_STOP(2);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "got work lock in %s\n", __func__);
-#endif
                 benesh_make_active(bnh, sub);
                 ABT_cond_signal(bnh->work_cond);
                 ABT_mutex_unlock(bnh->work_mutex);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "released work lock in %s\n", __func__);
-                fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
                 APEX_NAME_TIMER_START(3, "db_lock_asb");
                 ABT_mutex_lock(bnh->db_mutex);
                 APEX_TIMER_STOP(3);
-#ifdef DEBUG_LOCKS
-                fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
                 activated++;
             }
         }
+        DEBUG_OUT("registry updated\n");
     }
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
     APEX_TIMER_STOP(0);
     return (activated);
 }
@@ -2795,17 +2844,11 @@ void announce_work(struct benesh_handle *bnh, struct work_node *wnode)
     announce.tgt_vars = wnode->var_maps;
     announce.subrule_id = wnode->subrule;
 
-#ifdef BDEBUG
-    fprintf(stderr, "announcing rule %i, subrule %i\n", announce.tgt_id,
+    DEBUG_OUT("announcing rule %i, subrule %i\n", announce.tgt_id,
             announce.subrule_id);
-#endif
     APEX_NAME_TIMER_START(1, "ekt_tell_work");
     ekt_tell(bnh->ekth, NULL, bnh->work_type, &announce);
     APEX_TIMER_STOP(1);
-#ifdef BDEBUG
-    fprintf(stderr, "announced ule %i, subrule %i\n", announce.tgt_id,
-            announce.subrule_id);
-#endif
 }
 
 void benesh_handle_work(struct benesh_handle *bnh)
@@ -2826,6 +2869,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
     }
 
     while(bnh->wqueue_tail) {
+        //TODO: should try to detect unmet depedencies and wait, rather than busy loop
         handled++;
         wnode = deque_work(bnh);
 #ifdef BDEBUG
@@ -2846,13 +2890,14 @@ void benesh_handle_work(struct benesh_handle *bnh)
         } else {
             switch(wnode->type) {
             case BNH_WORK_OBJ:
+                DEBUG_OUT("cleanup from object completion\n");
                 if(wnode->realize == 1) {
                     realize_object(bnh, wnode->tgt, wnode->var_maps);
                 }
                 activate_subs(bnh, wnode);
                 break;
             case BNH_WORK_RULE:
-                (void)0;
+                DEBUG_OUT("cleanup from subrule completion\n");
                 APEX_NAME_TIMER_START(4, "lock_db_hwa");
                 ABT_mutex_lock(bnh->db_mutex);
                 APEX_TIMER_STOP(4);
@@ -2864,11 +2909,15 @@ void benesh_handle_work(struct benesh_handle *bnh)
                 activate_subs(bnh, wnode);
                 break;
             case BNH_WORK_CHAIN:
+                DEBUG_OUT("cleanup from chain completion\n");
                 break;
             }
 
             if(wnode->announce) {
+                DEBUG_OUT("announcing work completion to other components\n");
                 announce_work(bnh, wnode);
+            } else {
+                DEBUG_OUT("not announcing work completion.\n")
             }
         }
         APEX_NAME_TIMER_START(5, "lock_work_bhwc");
@@ -3136,11 +3185,17 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
     dom = var->dom;
     *dom_name = strdup(dom->full_name);
-    *ndim = dom->dim;
-    (*lb) = malloc(sizeof(**lb) * *ndim);
-    memcpy(*lb, dom->lb, sizeof(**lb) * *ndim);
-    (*ub) = malloc(sizeof(**ub) * *ndim);
-    memcpy(*ub, dom->ub, sizeof(**ub) * *ndim);
+    if(ndim) {
+        *ndim = dom->dim;
+    }
+    if(lb) {
+        *lb = malloc(sizeof(**lb) * *ndim);
+        memcpy(*lb, dom->lb, sizeof(**lb) * *ndim);
+    }
+    if(ub) {
+        *ub = malloc(sizeof(**ub) * *ndim);
+        memcpy(*ub, dom->ub, sizeof(**ub) * *ndim);
+    }
     return (0);
 }
 
