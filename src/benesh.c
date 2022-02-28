@@ -5,6 +5,7 @@
 
 #include "benesh.h"
 #include "ihash.h"
+#include "redev_wrapper.h"
 #include "xc_config.h"
 #include <abt.h>
 #include <dspaces.h>
@@ -54,6 +55,9 @@ struct wf_domain {
     double *l_grid_dims;
     int subdom_count;
     struct wf_domain *subdoms;
+    int32_t *rdv_dest;
+    int32_t *rdv_offset;
+    size_t rdv_count;
 };
 
 struct tpoint_rule {
@@ -175,6 +179,8 @@ struct work_node {
 struct wf_component {
     char *app;
     char *name;
+    struct rdv_comm *rdv;
+    int size;
     int isme;
 };
 
@@ -232,6 +238,8 @@ struct benesh_handle {
     int dom_count;
     struct wf_domain *doms;
     dspaces_client_t dsp;
+    int rdvRanks;
+
     int ready;
     int f_debug;
 };
@@ -244,9 +252,7 @@ static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
 void print_work_node(FILE *stream, struct benesh_handle *bnh,
                      struct work_node *wnode);
 void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
-                     struct work_node *wnode);
-
-
+                        struct work_node *wnode);
 
 int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
 struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
@@ -323,11 +329,11 @@ char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
         for(i = 0; i < tgt->num_vars; i++) {
             if(strcmp(&tgt->obj_name[pos][1], tgt->tgt_vars[i]) == 0) {
                 asprintf(&res, "%zi", maps[i]);
-                return(res);
+                return (res);
             }
         }
     } else {
-        return(strdup(tgt->obj_name[pos]));
+        return (strdup(tgt->obj_name[pos]));
     }
 }
 
@@ -345,7 +351,7 @@ char *wf_target_tostr(struct wf_target *tgt, uint64_t *maps)
         free(str2);
     }
 
-    return(res);
+    return (res);
 }
 
 struct obj_entry *get_object_entry(struct benesh_handle *bnh,
@@ -665,7 +671,7 @@ void benesh_make_active(struct benesh_handle *bnh, struct work_node *wnode)
 
     wnode->prev = NULL;
     wnode->next = bnh->wqueue_head;
-    if(bnh->f_debug) { 
+    if(bnh->f_debug) {
         DEBUG_OUT("making active ");
         print_work_node_nl(stderr, bnh, wnode);
     }
@@ -687,7 +693,8 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
     struct obj_entry *ent;
     int i;
 
-    DEBUG_OUT("scheduling subrules for rule %li (%i subrules)\n", tgt - bnh->tgts, tgt->num_subrules);
+    DEBUG_OUT("scheduling subrules for rule %li (%i subrules)\n",
+              tgt - bnh->tgts, tgt->num_subrules);
 
     chain = NULL;
     // lock object database and activity queue for this - dep could come in
@@ -695,12 +702,13 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
     for(i = 0; i < tgt->num_subrules; i++) {
         subrule = &tgt->subrule[i];
         if(subrule->comp_id == bnh->comp_id) {
-            DEBUG_OUT("I have work for target %li, subrule %i\n", tgt - bnh->tgts, i+1);
+            DEBUG_OUT("I have work for target %li, subrule %i\n",
+                      tgt - bnh->tgts, i + 1);
             if(chain == NULL) {
                 DEBUG_OUT("This subrule is the start of a chain\n");
                 chain = calloc(1, sizeof(*chain));
                 chain->type = BNH_WORK_CHAIN;
-// NOTE: subtargets start at 1, the target is 0, so decrement
+                // NOTE: subtargets start at 1, the target is 0, so decrement
                 ABT_mutex_lock(bnh->db_mutex);
                 ent = get_object_entry(bnh, tgt, i, map_vals, 1);
                 // TODO: delay making active until we're all done, to shrink
@@ -708,16 +716,22 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
                 if(ent->realized) {
                     ABT_mutex_unlock(bnh->db_mutex);
                     // we already have the work lock
-                    DEBUG_OUT("Previous subrule already realized; the new chain should go in the work queue immediately.\n");
+                    DEBUG_OUT(
+                        "Previous subrule already realized; the new chain "
+                        "should go in the work queue immediately.\n");
                     benesh_make_active(bnh, chain);
                 } else {
                     ABT_mutex_unlock(bnh->db_mutex);
                     // i == 0 means object initialization
                     if(bnh->f_debug) {
                         if(i) {
-                            DEBUG_OUT("Subscribe the new chain to target %li, subrule %i\n",  tgt - bnh->tgts, i);
+                            DEBUG_OUT("Subscribe the new chain to target %li, "
+                                      "subrule %i\n",
+                                      tgt - bnh->tgts, i);
                         } else {
-                            DEBUG_OUT("Subscribe the new chain to target %li initiation\n",  tgt - bnh->tgts);
+                            DEBUG_OUT("Subscribe the new chain to target %li "
+                                      "initiation\n",
+                                      tgt - bnh->tgts);
                         }
                     }
                     sub_target(bnh, tgt, (i ? i : -1), map_vals, chain);
@@ -747,7 +761,8 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
                 - bnh->tgts, i+1); wnode->announce = 1;
                 }
                 */
-                DEBUG_OUT("subrule %i should announce completion\n", wnode->subrule);
+                DEBUG_OUT("subrule %i should announce completion\n",
+                          wnode->subrule);
                 wnode->announce = 1;
                 chain = NULL;
             }
@@ -895,10 +910,9 @@ static int work_watch(void *work_v, void *bnh_v)
         sleep(1);
     }
 
-    DEBUG_OUT(
-            "received work from comp %" PRIu32 ", tgt_id = %" PRIu32
-            ", subrule = %" PRIu32 "\n",
-            work->comp_id, work->tgt_id, work->subrule_id);
+    DEBUG_OUT("received work from comp %" PRIu32 ", tgt_id = %" PRIu32
+              ", subrule = %" PRIu32 "\n",
+              work->comp_id, work->tgt_id, work->subrule_id);
 
     if(work->comp_id == bnh->comp_id) {
         APEX_TIMER_STOP(0);
@@ -1375,6 +1389,21 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         if_var += var_count;
         if(strcmp(comp->app, bnh->name) != 0) {
             ekt_connect(bnh->ekth, comp->app);
+            if(strcmp(comp->name, "App") == 0) {
+                DEBUG_OUT("We are talking to rdv\n");
+                bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
+                bnh->comps[i].rdv =
+                    new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 0);
+            } else if(strcmp(comp->name, "Participant") == 0) {
+                DEBUG_OUT("We are rdv\n");
+                bnh->rdvRanks = bnh->comm_size;
+                ;
+                bnh->comps[i].rdv =
+                    new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 1);
+            }
+            if(bnh->rdvRanks) {
+                DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
+            }
         } else {
             bnh->comps[i].isme = 1;
             bnh->comp_id = i;
@@ -1955,8 +1984,8 @@ static int benesh_load_targets(struct benesh_handle *bnh)
     free(tgtnodes);
 }
 
-int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
-                int wait, struct benesh_handle **handle)
+int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
+                struct benesh_handle **handle)
 {
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
@@ -2019,11 +2048,12 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm,
 
     if(wait) {
         if(bnh->rank == 0) {
-            DEBUG_OUT("waiting for bidirectional communication with other components.\n");
+            DEBUG_OUT("waiting for bidirectional communication with other "
+                      "components.\n");
             for(i = 0; i < bnh->comp_count; i++) {
                 if(strcmp(bnh->comps[i].app, bnh->name) != 0) {
-                    ekt_is_bidi(bnh->ekth, bnh->comps[i].app, 1);   
-                }     
+                    ekt_is_bidi(bnh->ekth, bnh->comps[i].app, 1);
+                }
             }
         }
         MPI_Barrier(bnh->mycomm);
@@ -2061,7 +2091,7 @@ void print_work_node(FILE *stream, struct benesh_handle *bnh,
 }
 
 void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
-                     struct work_node *wnode)
+                        struct work_node *wnode)
 {
     switch(wnode->type) {
     case BNH_WORK_OBJ:
@@ -2082,7 +2112,6 @@ void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
     }
     fprintf(stream, "\n");
 }
-
 
 struct work_node *deque_work(struct benesh_handle *bnh)
 {
@@ -2193,7 +2222,8 @@ void handle_method(struct benesh_handle *bnh, struct sub_rule *subrule)
 
     mth = &bnh->mths[subrule->mth_id];
     if(!mth->method) {
-        fprintf(stderr, "ERROR: no mapped function for method '%s'.\n", subrule->expr->minst->method->name);    
+        fprintf(stderr, "ERROR: no mapped function for method '%s'.\n",
+                subrule->expr->minst->method->name);
     } else {
         mth->method(bnh, mth->arg);
     }
@@ -2358,7 +2388,8 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     int i;
 
     APEX_FUNC_TIMER_START(handle_notify);
-    DEBUG_OUT("received notification for target %li, subrule %i.\n", ds->tgt - bnh->tgts, ds->subrule);
+    DEBUG_OUT("received notification for target %li, subrule %i.\n",
+              ds->tgt - bnh->tgts, ds->subrule);
 
     while(!bnh->ready) {
         // Change to wait condition
@@ -2418,7 +2449,7 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     free(ds);
     APEX_TIMER_STOP(0);
 
-    return(0);
+    return (0);
 }
 
 static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
@@ -2571,11 +2602,15 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct sub_rule *srule = &tgt->subrule[wnode->subrule];
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
+    struct wf_component *dst_comp = &bnh->comps[srule->comp_id];
     struct wf_domain *src_dom = src_var->dom;
     struct wf_domain *dst_dom = dst_var->dom;
     double *goff_lb, *goff_ub;
 
-    if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
+    if(bnh->rdvRanks) {
+        rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
+                 src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
+    } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
                     goff_ub);
@@ -2593,6 +2628,11 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *dst_dom = dst_var->dom;
     double *lb, *ub, *goff_lb, *goff_ub;
 
+    if(bnh->rdvRanks) {
+        wnode->sub_req = 1;
+        return 1;
+    }
+    
     if(local_overlap(dst_dom, src_dom, &lb, &ub)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         sub_var(bnh, wnode, src_var, dst_var, tgt, wnode->subrule,
@@ -2605,6 +2645,15 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
     }
 }
 
+int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
+{
+    struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 1];
+    struct wf_component *src_comp = &bnh->comps[prule->comp_id];
+    
+    rdv_recv(src_comp->rdv, 0, NULL);
+    return(1);
+}
+
 int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct data_sub *ds = wnode->ds;
@@ -2613,6 +2662,9 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 
     APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
+        if(bnh->rdvRanks) {
+            return(get_with_redev(bnh, wnode));
+        }
         APEX_NAME_TIMER_START(1, "data_lock_csa");
         ABT_mutex_lock(bnh->data_mutex);
         APEX_TIMER_STOP(1);
@@ -2776,16 +2828,16 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
         switch(wnode->type) {
         case BNH_WORK_OBJ:
             DEBUG_OUT("activating subs of target %li %s\n",
-                wnode->tgt - bnh->tgts,
-                ((wnode->subrule == 0) ? "realization" : "initiation"));
+                      wnode->tgt - bnh->tgts,
+                      ((wnode->subrule == 0) ? "realization" : "initiation"));
             break;
         case BNH_WORK_RULE:
             DEBUG_OUT("activating subs of target %li, rule %i\n",
-                wnode->tgt - bnh->tgts, wnode->subrule);
+                      wnode->tgt - bnh->tgts, wnode->subrule);
             break;
         case BNH_WORK_CHAIN:
             DEBUG_OUT("activating subs of a chain in target %li\n",
-                wnode->tgt - bnh->tgts);
+                      wnode->tgt - bnh->tgts);
             break;
         case BNH_WORK_ANNOUNCE:
             DEBUG_OUT(
@@ -2845,7 +2897,7 @@ void announce_work(struct benesh_handle *bnh, struct work_node *wnode)
     announce.subrule_id = wnode->subrule;
 
     DEBUG_OUT("announcing rule %i, subrule %i\n", announce.tgt_id,
-            announce.subrule_id);
+              announce.subrule_id);
     APEX_NAME_TIMER_START(1, "ekt_tell_work");
     ekt_tell(bnh->ekth, NULL, bnh->work_type, &announce);
     APEX_TIMER_STOP(1);
@@ -2869,7 +2921,8 @@ void benesh_handle_work(struct benesh_handle *bnh)
     }
 
     while(bnh->wqueue_tail) {
-        //TODO: should try to detect unmet depedencies and wait, rather than busy loop
+        // TODO: should try to detect unmet depedencies and wait, rather than
+        // busy loop
         handled++;
         wnode = deque_work(bnh);
 #ifdef BDEBUG
@@ -3140,38 +3193,98 @@ struct wf_domain *match_domain(struct benesh_handle *bnh, const char *dom_name)
     return (dom);
 }
 
+int get_rank(double glb, double gub, int rdvRanks, double gpt)
+{
+    return ((int)(((gpt - glb) / (gub - glb)) * rdvRanks));
+}
+
+void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
+                   int rdvRanks, double llb, double lub, uint64_t pts,
+                   int32_t **dest, int32_t **offset, size_t *count)
+{
+    double pitch;
+    double gpt;
+    long i;
+    int pos, rank;
+
+    pitch = (lub - llb) / pts;
+
+    *count = 1;
+    for(i = 0; i < pts - 1; i++) {
+        if(get_rank(glb, gub, rdvRanks, llb + (pitch * i)) !=
+           get_rank(glb, gub, rdvRanks, llb + (pitch * (i + 1)))) {
+            *count++;
+        }
+    }
+
+    *dest = malloc(*count * sizeof(**dest));
+    *offset = malloc((*count + 1) * sizeof(**offset));
+
+    (*offset)[0] = 0;
+    (*dest)[0] = get_rank(glb, gub, rdvRanks, llb);
+    pos = 1;
+    for(i = 1; i < pts; i++) {
+        rank = get_rank(glb, gub, rdvRanks, llb + (pitch * i));
+        if(rank != (*dest)[pos - 1]) {
+            (*dest)[pos] = rank;
+            (*offset)[pos] = i;
+            pos++;
+        }
+    }
+    (*offset)[pos] = pts;
+}
+
 int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                        double *grid_offset, double *grid_dims,
-                       uint64_t *grid_points)
+                       uint64_t *grid_points, int alloc)
 {
     struct wf_domain *dom;
     struct wf_var *var;
+    size_t grid_size = 1;
     int i, j;
 
     dom = match_domain(bnh, dom_name);
     dom->l_offset = malloc(sizeof(*dom->l_offset) * dom->dim);
-    dom->l_grid_pts = malloc(sizeof(*dom->l_grid_pts) * dom->dim);
     // TODO: move this to config file - it should be global
     dom->l_grid_dims = malloc(sizeof(*dom->l_grid_dims) * dom->dim);
 
-    memcpy(dom->l_offset, grid_offset, sizeof(*dom->l_offset) * dom->dim);
-    memcpy(dom->l_grid_pts, grid_points, sizeof(*dom->l_grid_pts) * dom->dim);
-    memcpy(dom->l_grid_dims, grid_dims, sizeof(*dom->l_grid_dims) * dom->dim);
-
-    for(i = 0; i < bnh->ifvar_count; i++) {
-        var = &bnh->ifvars[i];
-        if(var->dom == dom) {
-            // TODO: support types properly
-            var->buf_size = sizeof(double);
-            for(j = 0; j < dom->dim; j++) {
-                var->buf_size *= dom->l_grid_pts[j] + 1;
+    if(grid_points) {
+        // if NULL, match writing component
+        dom->l_grid_pts = malloc(sizeof(*dom->l_grid_pts) * dom->dim);
+        memcpy(dom->l_grid_pts, grid_points,
+               sizeof(*dom->l_grid_pts) * dom->dim);
+        for(i = 0; i < dom->dim; i++) {
+            grid_size *= dom->l_grid_pts[i];
+        }
+        if(alloc) {
+            for(i = 0; i < bnh->ifvar_count; i++) {
+                var = &bnh->ifvars[i];
+                if(var->dom == dom) {
+                    // TODO: support types properly
+                    var->buf_size = sizeof(int) * grid_size;
+                    if(var->buf) {
+                        free(var->buf);
+                    }
+                    var->buf = malloc(var->buf_size);
+                }
             }
-            if(var->buf) {
-                free(var->buf);
+        }
+        if(bnh->rdvRanks) {
+            if(dom->dim != 1) {
+                fprintf(stderr,
+                        "ERROR: rdv only works for dim = 1 right now\n");
+            } else {
+                get_rdv_dests(bnh, dom->lb[0], dom->ub[0], bnh->rdvRanks,
+                              grid_offset[0] + dom->lb[0],
+                              grid_offset[0] + dom->lb[0] + grid_dims[0],
+                              grid_points[0], &dom->rdv_dest, &dom->rdv_offset,
+                              &dom->rdv_count);
             }
-            var->buf = malloc(var->buf_size);
         }
     }
+
+    memcpy(dom->l_offset, grid_offset, sizeof(*dom->l_offset) * dom->dim);
+    memcpy(dom->l_grid_dims, grid_dims, sizeof(*dom->l_grid_dims) * dom->dim);
 
     return (0);
 }
@@ -3196,6 +3309,7 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
         *ub = malloc(sizeof(**ub) * *ndim);
         memcpy(*ub, dom->ub, sizeof(**ub) * *ndim);
     }
+
     return (0);
 }
 

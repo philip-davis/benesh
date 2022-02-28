@@ -8,18 +8,21 @@ set (benesh-pkg "share/cmake/dspaces")
 
 add_library(benesh 
             benesh.c
+            redev_wrapper.cpp
 )
 
 target_include_directories(benesh PRIVATE
-                           ${MPI_C_INCLUDE_PATH})
-target_compile_options(benesh PRIVATE ${MPI_C_COMPILE_FLAGS})
+                           ${MPI_CXX_INCLUDE_PATH})
+target_compile_options(benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(benesh PRIVATE
-                      ${MPI_C_LIBRARIES} 
-                      ${MPI_C_LINK_FLAGS}
+                      ${MPI_CXX_LIBRARIES} 
+                      ${MPI_CDX_LINK_FLAGS}
                       parser
                       dspaces::dspaces
                       ekt
-                      argobots)
+                      argobots
+                      redev::redev
+                      adios2::adios2)
 
 target_include_directories (benesh BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
