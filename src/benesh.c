@@ -1387,19 +1387,22 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         }
         free(varnodes);
         if_var += var_count;
+        DEBUG_OUT("We are %s\n", bnh->name);
         if(strcmp(comp->app, bnh->name) != 0) {
+            DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
             ekt_connect(bnh->ekth, comp->app);
             if(strcmp(comp->name, "App") == 0) {
                 DEBUG_OUT("We are talking to rdv\n");
                 bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
                 bnh->comps[i].rdv =
                     new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 0);
+                DEBUG_OUT("rdv_comm is %p\n", (void *)bnh->comps[i].rdv);
             } else if(strcmp(comp->name, "Participant") == 0) {
                 DEBUG_OUT("We are rdv\n");
                 bnh->rdvRanks = bnh->comm_size;
-                ;
                 bnh->comps[i].rdv =
                     new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 1);
+                DEBUG_OUT("rdv_comm is %p\n", (void *)bnh->comps[i].rdv)
             }
             if(bnh->rdvRanks) {
                 DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
@@ -2608,6 +2611,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     double *goff_lb, *goff_ub;
 
     if(bnh->rdvRanks) {
+        DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n", (void *) dst_comp->rdv, src_dom->l_grid_pts[0], src_var->buf_size);
         rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
                  src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
@@ -2620,7 +2624,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
-    struct sub_rule *prule = &tgt->subrule[wnode->subrule - 2];
+    struct sub_rule *prule = &tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
@@ -2647,9 +2651,10 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 
 int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 {
-    struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 1];
+    struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 2];  // subrules start at 1
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
-    
+  
+    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
     rdv_recv(src_comp->rdv, 0, NULL);
     return(1);
 }
@@ -3254,6 +3259,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
         memcpy(dom->l_grid_pts, grid_points,
                sizeof(*dom->l_grid_pts) * dom->dim);
         for(i = 0; i < dom->dim; i++) {
+            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i], i);
             grid_size *= dom->l_grid_pts[i];
         }
         if(alloc) {
@@ -3265,6 +3271,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                     if(var->buf) {
                         free(var->buf);
                     }
+                    DEBUG_OUT("allocating buffer of size %li bytes for var %s\n", var->buf_size, var->name);
                     var->buf = malloc(var->buf_size);
                 }
             }

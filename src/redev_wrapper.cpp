@@ -8,12 +8,12 @@ extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
                                          int isRdv)
 {
     const auto dim = 2;
-    auto ranks = redev::LOs(rdvRanks);
-    auto cuts = redev::Reals(rdvRanks);
-    auto ptn = redev::RCBPtn(dim, ranks, cuts);
-    redev::Redev rdv(*comm, ptn, isRdv);
+    static auto ranks = redev::LOs(rdvRanks);
+    static auto cuts = redev::Reals(rdvRanks);
+    static auto ptn = redev::RCBPtn(dim, ranks, cuts);
+    static redev::Redev rdv(*comm, ptn, isRdv);
     rdv.Setup();
-    std::string name = "rendezvous";
+    static std::string name = "rendezvous";
     return (struct rdv_comm *)(new redev::AdiosComm<redev::LO>(
         *comm, ranks.size(), rdv.getToEngine(), rdv.getIO(), name));
 }
@@ -39,5 +39,5 @@ extern "C" void rdv_recv(struct rdv_comm *comm, int knownSizes, void **buffer)
 
     rdv_comm->SetVerbose(5);
     rdv_comm->Unpack(rdvSrcRanks, offsets, msgs, msgStart, msgCount,
-                 (bool)knownSizes);
+                 true);
 }
