@@ -21,23 +21,30 @@ extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
 extern "C" void rdv_send(struct rdv_comm *comm, int count, int32_t *dest,
                          int32_t *offset, size_t buflen, int32_t *buffer)
 {
+    //fprintf(stderr, "in rdv_send\n");
     redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
     redev::LOs destv(dest, dest + count);
     redev::LOs offsetv(offset, offset + count + 1);
     redev::LOs msgs(buffer, buffer + buflen);
+    //fprintf(stderr, "packing\n");
     rdv_comm->Pack(destv, offsetv, msgs.data());
+    //fprintf(stderr, "sending\n");
     rdv_comm->Send();
 }
 
-extern "C" void rdv_recv(struct rdv_comm *comm, int knownSizes, void **buffer)
+extern "C" void rdv_recv(struct rdv_comm *comm, void **buffer)
 {
+    //fprintf(stderr, "in redv_recv\n");
     redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
-    redev::LO *msgs;
-    redev::GOs rdvSrcRanks;
-    redev::GOs offsets;
-    size_t msgStart, msgCount;
+    static redev::LO *msgs;
+    static redev::GOs rdvSrcRanks;
+    static redev::GOs offsets;
+    static size_t msgStart, msgCount;
+    static int knownSizes = 0;
 
     rdv_comm->SetVerbose(5);
     rdv_comm->Unpack(rdvSrcRanks, offsets, msgs, msgStart, msgCount,
-                 true);
+                     knownSizes);
+    knownSizes = 1;
+    
 }

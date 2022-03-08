@@ -311,11 +311,23 @@ int main(int argc, char** argv) {
     //sendRecvMapped(MPI_COMM_WORLD, isRdv, mbpr, rdvRanks, reductionFactor);
 
     for(int i = 0; i < 3; i++) {
+        auto start = std::chrono::steady_clock::now();
         std::string name = "step.";
         std::stringstream ss;
         ss << name << i;
         std::string tpname = ss.str();
-        benesh_tpoint(bnh, tpname.c_str()); 
+        benesh_tpoint(bnh, tpname.c_str());
+        auto end = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsed_seconds = end-start;
+        double min, max, avg;
+        timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
+        if(isRdv) {
+            ss << " read";
+        } else { 
+            ss << " write";
+        }
+        std::string str = ss.str();
+    if(!rank) printTime(str, min, max, avg);
     }
 
     benesh_fini(bnh);

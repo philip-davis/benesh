@@ -11,6 +11,6 @@ struct rdv_comm *new_rdv_comm(void *mpiComm_v, const int rdvRanks, int isRdv);
 void rdv_send(struct rdv_comm *comm, int count, int32_t *dest, int32_t *offset,
               size_t buflen, int32_t *buffer);
 
-void rdv_recv(struct rdv_comm *comm, int knownSizes, void **buffer);
+void rdv_recv(struct rdv_comm *comm, void **buffer);
 
 #endif

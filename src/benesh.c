@@ -2614,6 +2614,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
         DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n", (void *) dst_comp->rdv, src_dom->l_grid_pts[0], src_var->buf_size);
         rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
                  src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
+        DEBUG_OUT("sent\n");
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
@@ -2655,7 +2656,7 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
   
     DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
-    rdv_recv(src_comp->rdv, 0, NULL);
+    rdv_recv(src_comp->rdv, NULL);
     return(1);
 }
 
@@ -3112,11 +3113,11 @@ int benesh_fini(struct benesh_handle *bnh)
     uint32_t comp_id = bnh->comp_id;
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
-        fprintf(stderr, "%s sending fini\n", __func__);
+        DEBUG_OUT("sending fini\n");
     }
     ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
     if(bnh->rank == 0) {
-        fprintf(stderr, "sent fini. bnh->comp_count = %i\n", bnh->comp_count);
+        DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
     }
     while(bnh->comp_count) {
         benesh_handle_work(bnh);
@@ -3124,27 +3125,27 @@ int benesh_fini(struct benesh_handle *bnh)
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
         dspaces_kill(bnh->dsp);
-        fprintf(stderr, "%s did dspaces_kill\n", __func__);
+        DEBUG_OUT("did dspaces_kill\n");
     }
     dspaces_fini(bnh->dsp);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
-        fprintf(stderr, "%s did dspaces_fini\n", __func__);
+        DEBUG_OUT("did dspaces_fini\n");
     }
     bnsh_tpoint_fini(bnh->tph);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
-        fprintf(stderr, "%s did bnsh_tpoint_fini\n", __func__);
+        DEBUG_OUT("did bnsh_tpoint_fini\n");
     }
     ekt_fini(&bnh->ekth);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
-        fprintf(stderr, "%s did ekt_fini\n", __func__);
+        DEBUG_OUT("did ekt_fini\n");
     }
     margo_finalize(bnh->mid);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
-        fprintf(stderr, "%s did margo_finalize\n", __func__);
+        DEBUG_OUT("did margo_finalize\n");
     }
     free(bnh->name);
     MPI_Comm_free(&bnh->mycomm);
