@@ -53,7 +53,7 @@ int main(int argc, char **argv)
     grid_points = 8;
     grid_dims = ((*ub - *lb) / comm_size);
     grid_offset = grid_dims * rank;
-    benesh_bind_domain(bnh, dom_name, &grid_offset, &grid_dims, &grid_points);
+    benesh_bind_domain(bnh, dom_name, &grid_offset, &grid_dims, &grid_points, 1);
 
     if(strcmp(argv[1], "tptest") == 0) {
         fprintf(stderr, "I am sim\n");
