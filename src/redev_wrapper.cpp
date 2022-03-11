@@ -1,8 +1,26 @@
 
 #include <redev.h>
 #include <redev_comm.h>
+#include <string.h>
 
 struct rdv_comm;
+
+static void printTime(std::string mode, double min, double max, double avg) {
+    std::cerr << mode << " elapsed time min, max, avg (s): "
+        << min << " " << max << " " << avg << "\n";
+}
+
+static void timeMinMaxAvg(double time, double& min, double& max, double& avg) {
+    const auto comm = MPI_COMM_WORLD;
+    int nproc;
+    MPI_Comm_size(comm, &nproc);
+    double tot = 0;
+    MPI_Allreduce(&time, &min, 1, MPI_DOUBLE, MPI_MIN, comm);
+    MPI_Allreduce(&time, &max, 1, MPI_DOUBLE, MPI_MAX, comm);
+    MPI_Allreduce(&time, &tot, 1, MPI_DOUBLE, MPI_SUM, comm);
+    avg = tot / nproc;
+}
+
 
 extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
                                          int isRdv)
@@ -32,19 +50,27 @@ extern "C" void rdv_send(struct rdv_comm *comm, int count, int32_t *dest,
     rdv_comm->Send();
 }
 
-extern "C" void rdv_recv(struct rdv_comm *comm, void **buffer)
+extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer)
 {
     //fprintf(stderr, "in redv_recv\n");
     redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
-    static redev::LO *msgs;
+    redev::LO *msgs;
     static redev::GOs rdvSrcRanks;
     static redev::GOs offsets;
     static size_t msgStart, msgCount;
     static int knownSizes = 0;
 
-    rdv_comm->SetVerbose(5);
+    std::stringstream ss;
+    auto start = std::chrono::steady_clock::now();
     rdv_comm->Unpack(rdvSrcRanks, offsets, msgs, msgStart, msgCount,
                      knownSizes);
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end-start;
+    double min, max, avg;
+    timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
+    ss << " unpack";
+    std::string str = ss.str();
+    if(!rank) printTime(str, min, max, avg); 
     knownSizes = 1;
-    
+    delete msgs;
 }

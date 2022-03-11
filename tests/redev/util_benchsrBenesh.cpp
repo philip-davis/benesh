@@ -54,7 +54,7 @@ void timeMinMaxAvg(double time, double& min, double& max, double& avg) {
 }
 
 void printTime(std::string mode, double min, double max, double avg) {
-    std::cout << mode << " elapsed time min, max, avg (s): "
+    std::cerr << mode << " elapsed time min, max, avg (s): "
         << min << " " << max << " " << avg << "\n";
 }
 
@@ -252,7 +252,7 @@ void sendRecvMapped(MPI_Comm mpiComm, const bool isRdv, const int mbpr,
     }
 }
 
-void map_benesh_domain(benesh_app_id bnh, int rank, int mbpr)
+void map_benesh_domain(benesh_app_id bnh, int rank, long mbpr)
 {
     char *dom;
     double loffset, lsize;
@@ -283,7 +283,7 @@ int main(int argc, char** argv) {
     }
     auto isRdv = atoi(argv[1]);
     assert(isRdv==0 || isRdv ==1);
-    auto mbpr = atoi(argv[2])*MILLION;
+    auto mbpr = atol(argv[2])*MILLION;
     assert(mbpr>0);
     auto rdvRanks = atoi(argv[3]);
     assert(rdvRanks>0);

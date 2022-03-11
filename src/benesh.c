@@ -84,7 +84,6 @@ struct work_announce {
 
 struct tpoint_handle {
     ekt_id ekth;
-    ekt_type type;
     struct tpoint_rule *rules;
 };
 
@@ -233,6 +232,7 @@ struct benesh_handle {
     struct wf_var *ifvars;
     int mth_count;
     struct wf_method *mths;
+    ekt_type tp_type;
     ekt_type work_type;
     ekt_type fini_type;
     int dom_count;
@@ -1138,9 +1138,6 @@ int bnsh_tpoint_init(struct benesh_handle *bnh, struct tpoint_rule *tp_rules,
 {
     *tph = malloc(sizeof(**tph));
     (*tph)->ekth = bnh->ekth;
-    ekt_register(bnh->ekth, BENESH_EKT_TP, serialize_tpoint, deserialize_tpoint,
-                 bnh, &(*tph)->type);
-    ekt_watch(bnh->ekth, (*tph)->type, tpoint_watch);
     (*tph)->rules = tp_rules;
 
     return 0;
@@ -1154,11 +1151,11 @@ int bnsh_tpoint_fini(struct tpoint_handle *tph)
     return (0);
 }
 
-int bnsh_tpoint_announce(struct tpoint_handle *tph, int rule, uint64_t *values)
+int bnsh_tpoint_announce(struct benesh_handle *bnh, int rule, uint64_t *values)
 {
     struct tpoint_announce announce = {rule, values};
 
-    ekt_tell(tph->ekth, NULL, tph->type, &announce);
+    ekt_tell(bnh->ekth, NULL, bnh->tp_type, &announce);
 }
 
 static char **tokenize_tpoint(const char *tpoint, int *tkcnt)
@@ -2024,6 +2021,9 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     ekt_register(bnh->ekth, BENESH_EKT_FINI, serialize_fini, deserialize_fini,
                  bnh, &bnh->fini_type);
     ekt_watch(bnh->ekth, bnh->fini_type, fini_watch);
+    ekt_register(bnh->ekth, BENESH_EKT_TP, serialize_tpoint, deserialize_tpoint,
+                 bnh, &bnh->tp_type);
+    ekt_watch(bnh->ekth, bnh->tp_type, tpoint_watch);
     APEX_TIMER_STOP(3);
 
     DEBUG_OUT("initializing mutexes...\n");
@@ -2048,6 +2048,8 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     bnsh_tpoint_init(bnh, rules, &bnh->tph);
     APEX_TIMER_STOP(4);
+
+    ekt_enable(bnh->ekth);
 
     if(wait) {
         if(bnh->rank == 0) {
@@ -2656,7 +2658,7 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
   
     DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
-    rdv_recv(src_comp->rdv, NULL);
+    rdv_recv(src_comp->rdv, bnh->rank, NULL);
     return(1);
 }
 
@@ -3082,7 +3084,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
             announce.comp_id = bnh->comp_id;
             announce.tp_vars = values;
             APEX_NAME_TIMER_START(2, "ekt_tell_tpoint");
-            ekt_tell(tph->ekth, NULL, tph->type, &announce);
+            ekt_tell(tph->ekth, NULL, bnh->tp_type, &announce);
             DEBUG_OUT("announced touchpoint %s\n", tpname);
             APEX_TIMER_STOP(2);
             found = 1;
@@ -3213,13 +3215,16 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     long i;
     int pos, rank;
 
+    DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n", llb, lub, glb, gub, rdvRanks, pts); 
     pitch = (lub - llb) / pts;
+    DEBUG_OUT("pitch is %lf\n", pitch);
 
     *count = 1;
     for(i = 0; i < pts - 1; i++) {
         if(get_rank(glb, gub, rdvRanks, llb + (pitch * i)) !=
            get_rank(glb, gub, rdvRanks, llb + (pitch * (i + 1)))) {
-            *count++;
+            (*count)++;
+            DEBUG_OUT("found new cut ending at %li\n", i);
         }
     }
 
