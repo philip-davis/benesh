@@ -192,7 +192,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
 }
 <normal>{D}+ {
 
-    lvalp->val = atoi(yytext);
+    lvalp->val = atol(yytext);
     return(ICONST);
 }
     /*
@@ -246,7 +246,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
 
 <obj>{D}+ {
 
-    lvalp->val = atoi(yytext);
+    lvalp->val = atol(yytext);
     return(ICONST);
 }
 

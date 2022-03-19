@@ -20,7 +20,7 @@
 %union {
     void *ptr;
     double real;
-    int val;
+    long val;
     char *str;
 }
 
