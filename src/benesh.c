@@ -332,6 +332,7 @@ char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
                 return (res);
             }
         }
+        return(strdup("<err>"));
     } else {
         return (strdup(tgt->obj_name[pos]));
     }
@@ -2003,7 +2004,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
-    bnh->mid = margo_init("sockets", MARGO_SERVER_MODE, 1, 1);
+    bnh->mid = margo_init("verbs", MARGO_SERVER_MODE, 1, 1);
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
@@ -3273,7 +3274,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                 var = &bnh->ifvars[i];
                 if(var->dom == dom) {
                     // TODO: support types properly
-                    var->buf_size = sizeof(int) * grid_size;
+                    var->buf_size = sizeof(double) * grid_size;
                     if(var->buf) {
                         free(var->buf);
                     }

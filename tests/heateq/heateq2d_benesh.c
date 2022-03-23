@@ -17,10 +17,11 @@
         apex_stop(profiler##num);
 #else
 #define APEX_TIMER_STOP(num) (void)0
+#define APEX_NAME_TIMER_START(num, name) (void)0
 #define APEX_FUNC_TIMER_START(fn) (void)0
 #endif
 
-#include "../../benesh.h"
+#include "benesh.h"
 
 #include "heat.h"
 
@@ -36,7 +37,7 @@ double get_elapsed_sec(struct timeval *start, struct timeval *stop)
     return((stop->tv_sec - start->tv_sec) + (double)(stop->tv_usec - start->tv_usec) / 1000000.0);
 }
 
-int do_solve(benesh_handle bnh, benesh_arg arg)
+int do_solve(benesh_app_id bnh, benesh_arg arg)
 {
     struct heateq *heat = (struct heateq *)arg;
 
@@ -46,7 +47,7 @@ int do_solve(benesh_handle bnh, benesh_arg arg)
     return 0;
 }
 
-int do_advance(benesh_handle bnh, benesh_arg arg)
+int do_advance(benesh_app_id bnh, benesh_arg arg)
 {
     struct heateq *heat = (struct heateq *)arg;
 
@@ -78,7 +79,7 @@ int main(int argc, char **argv)
     int ts, maxts;
     char *app_name;
     double dt;
-    benesh_handle bnh;
+    benesh_app_id bnh;
     char tpoint[100];
     void *u_buf, *du_buf;
     struct heateq heat;
@@ -131,7 +132,7 @@ int main(int argc, char **argv)
     pdim.yrank = yrank;
     pdim.yranks = yranks;
 
-    benesh_init(app_name, "heateq2d.xc", MPI_COMM_WORLD, &bnh);
+    benesh_init(app_name, "heateq2d.xc", MPI_COMM_WORLD, 1, &bnh);
     APEX_NAME_TIMER_START(2, "domain config");
     benesh_get_var_domain(bnh, "u", &dom_name, &ndim, &dom_lb, &dom_ub);
     if(ndim != 2) {
@@ -146,7 +147,7 @@ int main(int argc, char **argv)
     offset[1] = dims[1] * yrank;
     grid_size[0] = xdim;
     grid_size[1] = ydim;
-    benesh_bind_domain(bnh, dom_name, offset, dims, grid_size); 
+    benesh_bind_domain(bnh, dom_name, offset, dims, grid_size, 1); 
     x0 = dom_lb[0];
     y0 = dom_lb[1];
     x1 = dom_ub[0];
@@ -188,8 +189,6 @@ int main(int argc, char **argv)
         tavg /= size;
         fprintf(stderr, "init time, %lf, %lf, %lf\n", tavg, tmax, tmin);
     }
-
-    sleep(5);
 
     double norm_part, norm_sum, du_norm;
 

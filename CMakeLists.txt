@@ -4,6 +4,7 @@ project (benesh VERSION 0.2.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 
+cmake_policy(SET CMP0074 NEW)
 cmake_policy(SET CMP0088 NEW)
 
 if(NOT CMAKE_ARCHIVE_OUTPUT_DIRECTORY)
