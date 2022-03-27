@@ -30,18 +30,16 @@ real dt = 0.00000000001
 Left.u.0:
 Left.u.%{t}: Left.u.%[[t-1]] Left.du.%[[t-1]]
     Left.advance(dt)
-Left.tr.%{t}: Left.u.%{t} Right.u.%{t}
+Left.du.%{t}: Left.u.%{t} Right.u.%{t}
     Left.u.%{t} < Right.u.%{t}
-Left.du.%{t}: Left.tr.%{t} Right.tr.%{t}
     Left.solve()
 
 Right.u.0:
+Right.du.%{t}: Left.u.%[[t+1]] Right.u.%{t}
+    Right.u.%{t} < Left.u.%[[t+1]]
+    Right.solve()
 Right.u.%{t}: Right.u.%[[t-1]] Right.du.%[[t-1]]
     Right.advance(dt)
-Right.tr.%{t}: Left.u.%{t} Right.u.%{t}
-    Right.u.%{t} < Left.u.%{t}
-Right.du.%{t}: Left.tr.%{t} Right.tr.%{t}
-    Right.solve()
 
 Left@ts.%{t}:
     Left.u.%{t}

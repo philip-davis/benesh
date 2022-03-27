@@ -916,6 +916,7 @@ static int work_watch(void *work_v, void *bnh_v)
               work->comp_id, work->tgt_id, work->subrule_id);
 
     if(work->comp_id == bnh->comp_id) {
+        DEBUG_OUT("work came from self; not processing further.\n");
         APEX_TIMER_STOP(0);
         return 0;
     }
@@ -2004,7 +2005,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
-    bnh->mid = margo_init("verbs", MARGO_SERVER_MODE, 1, 1);
+    bnh->mid = margo_init("sockets", MARGO_SERVER_MODE, 1, 1);
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
@@ -2526,7 +2527,7 @@ static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
 }
 
 // maybe cache these results?
-int local_overlap(struct wf_domain *loc_dom, struct wf_domain *glob_dom,
+int local_overlap(struct benesh_handle *bnh, struct wf_domain *loc_dom, struct wf_domain *glob_dom,
                   double **lb_overlap, double **ub_overlap)
 {
     double llb, lub, glb, gub;
@@ -2560,14 +2561,12 @@ int local_overlap(struct wf_domain *loc_dom, struct wf_domain *glob_dom,
         }
     }
 
-#ifdef BDEBUG
-    if(lb_overlap && ub_overlap) {
+    if(bnh->f_debug && lb_overlap && ub_overlap) {
         for(i = 0; i < loc_dom->dim; i++) {
-            fprintf(stderr, "overlap on dim %i is %lf to %lf\n", i,
+            DEBUG_OUT("overlap on dim %i is %lf to %lf\n", i,
                     (*lb_overlap)[i], (*ub_overlap)[i]);
         }
     }
-#endif /* BDEBUG */
 
     return (1);
 }
@@ -2618,7 +2617,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
         rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
                  src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
         DEBUG_OUT("sent\n");
-    } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
+    } else if(local_overlap(bnh, src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
                     goff_ub);
@@ -2641,7 +2640,7 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
         return 1;
     }
     
-    if(local_overlap(dst_dom, src_dom, &lb, &ub)) {
+    if(local_overlap(bnh, dst_dom, src_dom, &lb, &ub)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         sub_var(bnh, wnode, src_var, dst_var, tgt, wnode->subrule,
                 wnode->var_maps, lb, ub, goff_lb, goff_ub);
@@ -2668,12 +2667,14 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     struct data_sub *ds = wnode->ds;
     int ret;
     int result;
+    int status;
 
     APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
         if(bnh->rdvRanks) {
             return(get_with_redev(bnh, wnode));
         }
+        /*
         APEX_NAME_TIMER_START(1, "data_lock_csa");
         ABT_mutex_lock(bnh->data_mutex);
         APEX_TIMER_STOP(1);
@@ -2688,6 +2689,27 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
               DSPACES_SUB_DONE;
         APEX_TIMER_STOP(2);
         DEBUG_OUT("dspaces_check_sub finished\n");
+        APEX_TIMER_STOP(0);
+        */
+        
+        status = dspaces_check_sub(bnh->dsp, wnode->req, 0, &result);
+        if(status == DSPACES_SUB_RUNNING) {
+            ABT_mutex_lock(bnh->data_mutex);
+            ds->waiting = 1;
+            ABT_cond_broadcast(bnh->data_cond);
+            ABT_mutex_unlock(bnh->data_mutex);
+            DEBUG_OUT("waiting for dspaces_check_sub\n");
+            APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
+            ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
+              DSPACES_SUB_DONE;
+            APEX_TIMER_STOP(2)
+            DEBUG_OUT("dspaces_check_sub finished\n");
+        } else if(status == DSPACES_SUB_DONE) {
+            fprintf(stderr, "WARNING: unexpected completion without running status in %s.\n", __func__);
+            ret = 1;
+        } else {
+            ret = 0;
+        }
         APEX_TIMER_STOP(0);
         return (ret);
     } else {
@@ -2726,6 +2748,7 @@ int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
         fprintf(stderr, "ERROR: unkown subrule type.\n");
     }
     APEX_TIMER_STOP(0);
+    DEBUG_OUT("finished subrule handling\n");
     return (1);
 }
 
