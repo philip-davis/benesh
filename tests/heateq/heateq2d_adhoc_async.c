@@ -245,16 +245,14 @@ int main(int argc, char **argv)
     gettimeofday(&start, NULL);
     APEX_NAME_TIMER_START(4, "compute phase");
     for(ts = 1; ts <= maxts; ts++) {
-        if(cmap && ts > 1) {
+        if(cmap) {
+            write_stage(varU, dsp, cmap, ts);
             read_peer(varU, dsp, cmap, ts);
         }
         MPI_Barrier(MPI_COMM_WORLD);
         fill_ghosts(varU, &pdim);    
         euler_solve(varU, varDU, &dom);
         advance(varU, varDU, dt);
-        if(cmap) {
-            write_stage(varU, dsp, cmap, ts);
-        }
         norm_part = get_l2_norm_sq(varDU);
         norm_sum = 0;
         MPI_Reduce(&norm_part, &norm_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
