@@ -14,6 +14,13 @@ target_include_directories(bredev PRIVATE
 target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
 
+add_executable(heateq heateq/heateq2d.c heateq/heat.c)
+target_include_directories(heateq PRIVATE
+    ${MPI_C_INCLUDE_PATH}
+)
+target_compile_options(heateq PRIVATE ${MPI_C_COMPILE_FLAGS})
+target_link_libraries(heateq ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} m)
+
 add_executable(heateq_adhoc heateq/heateq2d_adhoc.c heateq/heat.c)
 
 target_include_directories(heateq_adhoc PRIVATE
