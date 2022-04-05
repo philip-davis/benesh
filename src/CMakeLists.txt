@@ -23,6 +23,7 @@ target_link_libraries(benesh PRIVATE
                       argobots
                       redev::redev
                       adios2::adios2)
+set_property(TARGET benesh PROPERTY CXX_STANDARD 20)
 
 target_include_directories (benesh BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
