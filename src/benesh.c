@@ -332,7 +332,7 @@ char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
                 return (res);
             }
         }
-        return(strdup("<err>"));
+        return (strdup("<err>"));
     } else {
         return (strdup(tgt->obj_name[pos]));
     }
@@ -957,6 +957,29 @@ static int work_watch(void *work_v, void *bnh_v)
     return (0);
 }
 
+char *tpoint_tostr(const char *comp_name, struct tpoint_rule *rule)
+{
+    char **token;
+    char *str;
+    int len;
+
+    len = strlen(comp_name) + 2;
+    for(token = rule->rule; *token; token++) {
+        len += strlen(*token) + 1;
+    }
+
+    str = malloc(len);
+    strcpy(str, comp_name);
+    strcat(str, "@");
+    strcat(str, rule->rule[0]);
+    for(token = &rule->rule[1]; *token; token++) {
+        strcat(str, ".");
+        strcat(str, *token);
+    }
+
+    return (str);
+}
+
 static int tpoint_watch(void *tpoint_v, void *bnh_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
@@ -974,22 +997,15 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         sleep(1);
     }
 
-#ifdef BDEBUG
-    fprintf(stderr, "Touchpoint announcement received for rule:\n  %s@%s",
-            bnh->comps[tpoint->comp_id].name, rule->rule[0]);
-    rule_part = &rule->rule[1];
-    while(*rule_part) {
-        fprintf(stderr, ".%s", *rule_part);
-        rule_part++;
+    if(bnh->f_debug) {
+        DEBUG_OUT("Touchpoint announcement received for rule %s\n",
+                  tpoint_tostr(bnh->comps[tpoint->comp_id].name, rule));
+        DEBUG_OUT("  with the mappings:\n");
+        for(i = 0; i < rule->nmappings; i++) {
+            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i],
+                      tpoint->tp_vars[i]);
+        }
     }
-
-    fprintf(stderr, "\n\nwith\n");
-    for(i = 0; i < rule->nmappings; i++) {
-        fprintf(stderr, " %s => %" PRId64 "\n", rule->map_names[i],
-                tpoint->tp_vars[i]);
-    }
-    fprintf(stderr, "\n");
-#endif /* BDEBUG */
 
     fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
     for(i = 0; i < rule->num_tgts; i++) {
@@ -1381,7 +1397,17 @@ static void benesh_init_comps(struct benesh_handle *bnh)
             if_var[j].versions = xc_new_ihash_map(32, 1);
             if_var[j].comp_id = i;
             if(i == bnh->comp_id) {
+                // BUG? Didn't we do this a couple lines ago unconditionally?
                 if_var[j].versions = xc_new_ihash_map(32, 1);
+            }
+            if(strcmp(var->base->name, "integer") == 0) {
+                if_var[j].type = BNH_TYPE_INT;
+            } else if(strcmp(var->base->name, "real") == 0) {
+                if_var[j].type = BNH_TYPE_FP;
+            } else {
+                fprintf(
+                    stderr,
+                    "ERROR: unsupported base type for workflow variable.\n");
             }
         }
         free(varnodes);
@@ -2527,8 +2553,9 @@ static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
 }
 
 // maybe cache these results?
-int local_overlap(struct benesh_handle *bnh, struct wf_domain *loc_dom, struct wf_domain *glob_dom,
-                  double **lb_overlap, double **ub_overlap)
+int local_overlap(struct benesh_handle *bnh, struct wf_domain *loc_dom,
+                  struct wf_domain *glob_dom, double **lb_overlap,
+                  double **ub_overlap)
 {
     double llb, lub, glb, gub;
     int i;
@@ -2563,8 +2590,8 @@ int local_overlap(struct benesh_handle *bnh, struct wf_domain *loc_dom, struct w
 
     if(bnh->f_debug && lb_overlap && ub_overlap) {
         for(i = 0; i < loc_dom->dim; i++) {
-            DEBUG_OUT("overlap on dim %i is %lf to %lf\n", i,
-                    (*lb_overlap)[i], (*ub_overlap)[i]);
+            DEBUG_OUT("overlap on dim %i is %lf to %lf\n", i, (*lb_overlap)[i],
+                      (*ub_overlap)[i]);
         }
     }
 
@@ -2613,7 +2640,9 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     double *goff_lb, *goff_ub;
 
     if(bnh->rdvRanks) {
-        DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n", (void *) dst_comp->rdv, src_dom->l_grid_pts[0], src_var->buf_size);
+        DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n",
+                  (void *)dst_comp->rdv, src_dom->l_grid_pts[0],
+                  src_var->buf_size);
         rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
                  src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
         DEBUG_OUT("sent\n");
@@ -2627,7 +2656,8 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
-    struct sub_rule *prule = &tgt->subrule[wnode->subrule - 2]; // subrules start at 1
+    struct sub_rule *prule =
+        &tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
@@ -2639,7 +2669,7 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
         wnode->sub_req = 1;
         return 1;
     }
-    
+
     if(local_overlap(bnh, dst_dom, src_dom, &lb, &ub)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         sub_var(bnh, wnode, src_var, dst_var, tgt, wnode->subrule,
@@ -2654,12 +2684,14 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 
 int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 {
-    struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 2];  // subrules start at 1
+    struct sub_rule *prule =
+        &wnode->tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
-  
-    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
+
+    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id,
+              (void *)src_comp->rdv);
     rdv_recv(src_comp->rdv, bnh->rank, NULL);
-    return(1);
+    return (1);
 }
 
 int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
@@ -2672,7 +2704,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
         if(bnh->rdvRanks) {
-            return(get_with_redev(bnh, wnode));
+            return (get_with_redev(bnh, wnode));
         }
         /*
         APEX_NAME_TIMER_START(1, "data_lock_csa");
@@ -2691,7 +2723,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         DEBUG_OUT("dspaces_check_sub finished\n");
         APEX_TIMER_STOP(0);
         */
-        
+
         status = dspaces_check_sub(bnh->dsp, wnode->req, 0, &result);
         if(status == DSPACES_SUB_RUNNING) {
             ABT_mutex_lock(bnh->data_mutex);
@@ -2701,11 +2733,14 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
             DEBUG_OUT("waiting for dspaces_check_sub\n");
             APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
             ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
-              DSPACES_SUB_DONE;
+                  DSPACES_SUB_DONE;
             APEX_TIMER_STOP(2)
             DEBUG_OUT("dspaces_check_sub finished\n");
         } else if(status == DSPACES_SUB_DONE) {
-            fprintf(stderr, "WARNING: unexpected completion without running status in %s.\n", __func__);
+            fprintf(stderr,
+                    "WARNING: unexpected completion without running status in "
+                    "%s.\n",
+                    __func__);
             ret = 1;
         } else {
             ret = 0;
@@ -3239,7 +3274,9 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     long i;
     int pos, rank;
 
-    DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n", llb, lub, glb, gub, rdvRanks, pts); 
+    DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] "
+              "subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n",
+              llb, lub, glb, gub, rdvRanks, pts);
     pitch = (lub - llb) / pts;
     DEBUG_OUT("pitch is %lf\n", pitch);
 
@@ -3275,6 +3312,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
 {
     struct wf_domain *dom;
     struct wf_var *var;
+    size_t data_size;
     size_t grid_size = 1;
     int i, j;
 
@@ -3289,7 +3327,8 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
         memcpy(dom->l_grid_pts, grid_points,
                sizeof(*dom->l_grid_pts) * dom->dim);
         for(i = 0; i < dom->dim; i++) {
-            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i], i);
+            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i],
+                      i);
             grid_size *= dom->l_grid_pts[i];
         }
         if(alloc) {
@@ -3297,11 +3336,18 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                 var = &bnh->ifvars[i];
                 if(var->dom == dom) {
                     // TODO: support types properly
-                    var->buf_size = sizeof(double) * grid_size;
+                    if(var->type == BNH_TYPE_INT) {
+                        data_size = sizeof(int);
+                    } else {
+                        data_size = sizeof(double);
+                    }
+                    var->buf_size = data_size * grid_size;
                     if(var->buf) {
                         free(var->buf);
                     }
-                    DEBUG_OUT("allocating buffer of size %li bytes for var %s\n", var->buf_size, var->name);
+                    DEBUG_OUT(
+                        "allocating buffer of size %li bytes for var %s\n",
+                        var->buf_size, var->name);
                     var->buf = malloc(var->buf_size);
                 }
             }
