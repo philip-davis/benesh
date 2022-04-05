@@ -974,22 +974,14 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         sleep(1);
     }
 
-#ifdef BDEBUG
-    fprintf(stderr, "Touchpoint announcement received for rule:\n  %s@%s",
-            bnh->comps[tpoint->comp_id].name, rule->rule[0]);
-    rule_part = &rule->rule[1];
-    while(*rule_part) {
-        fprintf(stderr, ".%s", *rule_part);
-        rule_part++;
+    if(bnh->f_debug) {
+        DEBUG_OUT("Touchpoint announcement received for rule %s\n",
+                tpoint_tostr(bnh->comps[tpoint->comp_id].name, rule));
+        DEBUG_OUT("  with the mappings:\n");
+        for(i = 0; i < rule->nmappings; i++) {
+            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i], tpoint->tp_vars[i]);   
+        }
     }
-
-    fprintf(stderr, "\n\nwith\n");
-    for(i = 0; i < rule->nmappings; i++) {
-        fprintf(stderr, " %s => %" PRId64 "\n", rule->map_names[i],
-                tpoint->tp_vars[i]);
-    }
-    fprintf(stderr, "\n");
-#endif /* BDEBUG */
 
     fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
     for(i = 0; i < rule->num_tgts; i++) {
@@ -2005,7 +1997,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
-    bnh->mid = margo_init("sockets", MARGO_SERVER_MODE, 1, 1);
+    bnh->mid = margo_init("verbs", MARGO_SERVER_MODE, 1, 1);
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
@@ -2669,7 +2661,6 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     int result;
     int status;
 
-    APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
         if(bnh->rdvRanks) {
             return(get_with_redev(bnh, wnode));
@@ -2710,13 +2701,10 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         } else {
             ret = 0;
         }
-        APEX_TIMER_STOP(0);
         return (ret);
     } else {
-        APEX_TIMER_STOP(0);
         return (1);
     }
-    APEX_TIMER_STOP(0);
 }
 
 int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
@@ -2967,9 +2955,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
 #ifdef BDEBUG
             fprintf(stderr, "requeueing incomplete work\n");
 #endif
-            APEX_NAME_TIMER_START(3, "lock_work_bhwb");
             ABT_mutex_lock(bnh->work_mutex);
-            APEX_TIMER_STOP(3);
             benesh_make_active(bnh, wnode);
             ABT_mutex_unlock(bnh->work_mutex);
         } else {
@@ -3005,9 +2991,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
                 DEBUG_OUT("not announcing work completion.\n")
             }
         }
-        APEX_NAME_TIMER_START(5, "lock_work_bhwc");
         ABT_mutex_lock(bnh->work_mutex);
-        APEX_TIMER_STOP(5);
     }
     ABT_mutex_unlock(bnh->work_mutex);
 
