@@ -6,10 +6,11 @@ include (CMakePackageConfigHelpers)
 # where to install files for "find_package"
 set (benesh-pkg "share/cmake/dspaces")
 
-add_library(benesh 
-            benesh.c
-            redev_wrapper.cpp
-)
+add_library(benesh benesh.c)
+if(_redev_FOUND)
+    target_sources(benesh redev_wrapper.cpp)
+endif()
+
 
 target_include_directories(benesh PRIVATE
                            ${MPI_CXX_INCLUDE_PATH})
@@ -20,9 +21,11 @@ target_link_libraries(benesh PRIVATE
                       parser
                       dspaces::dspaces
                       ekt
-                      argobots
-                      redev::redev
-                      adios2::adios2)
+                      argobots)
+if(_redev_FOUND)
+    target_link_libraries(benesh PRIVATE redev::redev adios2::adios2)
+endif()
+   
 set_property(TARGET benesh PROPERTY CXX_STANDARD 20)
 
 target_include_directories (benesh BEFORE PUBLIC

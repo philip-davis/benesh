@@ -5,7 +5,9 @@
 
 #include "benesh.h"
 #include "ihash.h"
+#ifdef HAVE_REDEV
 #include "redev_wrapper.h"
+#endif
 #include "xc_config.h"
 #include <abt.h>
 #include <dspaces.h>
@@ -55,9 +57,11 @@ struct wf_domain {
     double *l_grid_dims;
     int subdom_count;
     struct wf_domain *subdoms;
+#ifdef HAVE_REDEV
     int32_t *rdv_dest;
     int32_t *rdv_offset;
     size_t rdv_count;
+#endif
 };
 
 struct tpoint_rule {
@@ -178,7 +182,9 @@ struct work_node {
 struct wf_component {
     char *app;
     char *name;
+#ifdef HAVE_REDEV
     struct rdv_comm *rdv;
+#endif
     int size;
     int isme;
 };
@@ -238,7 +244,9 @@ struct benesh_handle {
     int dom_count;
     struct wf_domain *doms;
     dspaces_client_t dsp;
+#ifdef HAVE_REDEV
     int rdvRanks;
+#endif
 
     int ready;
     int f_debug;
@@ -1415,6 +1423,7 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         if(strcmp(comp->app, bnh->name) != 0) {
             DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
             ekt_connect(bnh->ekth, comp->app);
+#ifdef HAVE_REDEV
             if(strcmp(comp->name, "App") == 0) {
                 DEBUG_OUT("We are talking to rdv\n");
                 bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
@@ -1431,6 +1440,7 @@ static void benesh_init_comps(struct benesh_handle *bnh)
             if(bnh->rdvRanks) {
                 DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
             }
+#endif
         } else {
             bnh->comps[i].isme = 1;
             bnh->comp_id = i;
@@ -2638,6 +2648,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *dst_dom = dst_var->dom;
     double *goff_lb, *goff_ub;
 
+#ifdef HAVE_REDEV
     if(bnh->rdvRanks) {
         DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n",
                   (void *)dst_comp->rdv, src_dom->l_grid_pts[0],
@@ -2645,11 +2656,16 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
         rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
                  src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
         DEBUG_OUT("sent\n");
-    } else if(local_overlap(bnh, src_dom, dst_dom, NULL, NULL)) {
-        overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
-        publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
-                    goff_ub);
+    } else {
+#endif
+        if(local_overlap(bnh, src_dom, dst_dom, NULL, NULL)) {
+            overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
+            publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
+                        goff_ub);
+        }
+#ifdef HAVE_REDEV
     }
+#endif
 }
 
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
@@ -2664,10 +2680,12 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *dst_dom = dst_var->dom;
     double *lb, *ub, *goff_lb, *goff_ub;
 
+#ifdef HAVE_REDEV
     if(bnh->rdvRanks) {
         wnode->sub_req = 1;
         return 1;
     }
+#endif
 
     if(local_overlap(bnh, dst_dom, src_dom, &lb, &ub)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
@@ -2681,6 +2699,7 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
     }
 }
 
+#ifdef HAVE_REDEV
 int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct sub_rule *prule =
@@ -2692,6 +2711,7 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     rdv_recv(src_comp->rdv, bnh->rank, NULL);
     return (1);
 }
+#endif
 
 int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
@@ -2701,9 +2721,11 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     int status;
 
     if(wnode->sub_req) {
+#ifdef HAVE_REDEV
         if(bnh->rdvRanks) {
             return (get_with_redev(bnh, wnode));
         }
+#endif
         /*
         APEX_NAME_TIMER_START(1, "data_lock_csa");
         ABT_mutex_lock(bnh->data_mutex);
@@ -3251,6 +3273,7 @@ struct wf_domain *match_domain(struct benesh_handle *bnh, const char *dom_name)
     return (dom);
 }
 
+#ifdef HAVE_REDEV
 int get_rank(double glb, double gub, int rdvRanks, double gpt)
 {
     return ((int)(((gpt - glb) / (gub - glb)) * rdvRanks));
@@ -3296,6 +3319,7 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     }
     (*offset)[pos] = pts;
 }
+#endif
 
 int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                        double *grid_offset, double *grid_dims,
@@ -3343,6 +3367,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                 }
             }
         }
+#ifdef HAVE_REDEV
         if(bnh->rdvRanks) {
             if(dom->dim != 1) {
                 fprintf(stderr,
@@ -3355,6 +3380,7 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
                               &dom->rdv_count);
             }
         }
+#endif
     }
 
     memcpy(dom->l_offset, grid_offset, sizeof(*dom->l_offset) * dom->dim);

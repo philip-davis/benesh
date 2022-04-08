@@ -6,13 +6,15 @@ target_include_directories(smoke PRIVATE
 target_compile_options(smoke PRIVATE ${MPI_C_COMPILE_FLAGS})
 target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
 
-add_executable(bredev redev/util_benchsrBenesh.cpp)
+if(_redev_FOUND)
+    add_executable(bredev redev/util_benchsrBenesh.cpp)
 
-target_include_directories(bredev PRIVATE
-    ${MPI_CXX_INCLUDE_PATH}
-)
-target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+    target_include_directories(bredev PRIVATE
+        ${MPI_CXX_INCLUDE_PATH}
+    )
+    target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+    target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+endif()
 
 add_executable(heateq heateq/heateq2d.c heateq/heat.c)
 target_include_directories(heateq PRIVATE
@@ -43,7 +45,12 @@ target_include_directories(heateq_benesh PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
 target_compile_options(heateq_benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(heateq_benesh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+target_link_libraries(heateq_benesh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh)
+
+if(_redev_FOUND)
+    add_definitions(-DHAVE_REDEV)
+    target_link_libraries(heateq_benesh redev::redev adios2::adios2)
+endif()
 if(_apex_FOUND)
     add_definitions(-DUSE_APEX)
     target_link_libraries(heateq_adhoc apex)
