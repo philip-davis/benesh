@@ -1991,10 +1991,20 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
     const char *envdebug = getenv("BENESH_DEBUG");
+    const char *envna = getenv("BENESH_NA");
+    char *na;
     int i;
 
     if(envdebug) {
         bnh->f_debug = 1;
+    }
+
+    if(envna) {
+        DEBUG_OUT("using '%s' for NA string\n", envna);
+        na = strdup(envna);
+    } else {
+        DEBUG_OUT("using defeault NA string (\"sockets\")\n");
+        na = strdup("sockets");
     }
 
     APEX_FUNC_TIMER_START(benesh_init);
@@ -2004,7 +2014,8 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
-    bnh->mid = margo_init("verbs", MARGO_SERVER_MODE, 1, 1);
+
+    bnh->mid = margo_init(na, MARGO_SERVER_MODE, 1, 1);
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
