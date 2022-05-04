@@ -39,7 +39,7 @@ xpkg_import_module(apex apex)
 find_package(dspaces REQUIRED)
 find_package(MPI COMPONENTS REQUIRED)
 find_package(redev)
-find_package(ADIOS2 2.7.1 COMPONENTS REQUIRED)
+find_package(ADIOS2 2.7.1 COMPONENTS)
 
 add_subdirectory(include)
 add_subdirectory(src)
