@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+
+<adios-config>
+    <io name="heat">
+        <engine type="SST">
+            <parameter key="OpenTimeoutSecs" value="60" />
+            <parameter key="RendezvousReaderCount" value="0"/>
+            <parameter key="ReserveQueueLimit" value="1" />
+        </engine>
+    </io>
+</adios-config>
