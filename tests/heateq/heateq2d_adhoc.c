@@ -49,11 +49,13 @@ struct couple_map {
     char stage_var[100];
     char peer_var[100];
 #ifdef HAVE_ADIOS2
-    adios2_io *io_heat;
+    adios2_io *io_heat_in;
+    adios2_io *io_heat_out;
     adios2_engine *eng_read;
     adios2_engine *eng_write;
     adios2_variable *out_var;
     MPI_Comm couple_comm;
+    int isLeft;
 #endif
 };
 
@@ -120,7 +122,6 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
     ol_size_y = (cmap->l_ub[1] - cmap->l_lb[1]) + 1;
     ol_size_x = (cmap->l_ub[0] - cmap->l_lb[0]) + 1;
     l_dims[0] = ol_size_x; l_dims[1] = ol_size_y;
-    fprintf(stderr, "ldims = {%zi, %zi}\n", l_dims[0], l_dims[1]);
     len =  ol_size_y * sizeof(*cmap->buf) + ol_size_x * ol_size_y * sizeof(**cmap->buf);
     cmap->buf = malloc(len);
     cmap->buf_raw = (double *)&cmap->buf[ol_size_y];
@@ -135,7 +136,8 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
         sprintf(cmap->stage_var, "right");
         sprintf(cmap->peer_var, "left");
     }
-    
+    cmap->isLeft = isLeft;
+
     cmap->comm_type = comm_type;
     if(comm_type == COMM_DSPACES) { 
         APEX_NAME_TIMER_START(3, "dspaces init");
@@ -145,8 +147,9 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
 #ifdef HAVE_ADIOS2 
         APEX_NAME_TIMER_START(3, "adios init");
         cmap->ad = adios2_init_config_mpi("adios2.xml", cmap->couple_comm);
-        cmap->io_heat = adios2_declare_io(cmap->ad, "heat");
-        cmap->out_var = adios2_define_variable(cmap->io_heat, "u", adios2_type_double, 2, g_dims, cmap->g_lb, l_dims, adios2_constant_dims_true);
+        cmap->io_heat_in = adios2_declare_io(cmap->ad, isLeft ? "heat_r2l" : "heat_l2r");
+        cmap->io_heat_out = adios2_declare_io(cmap->ad, isLeft ? "heat_l2r" : "heat_r2l");
+        cmap->out_var = adios2_define_variable(cmap->io_heat_out, isLeft ? "ul2r" : "ur2l", adios2_type_double, 2, g_dims, cmap->g_lb, l_dims, adios2_constant_dims_true);
         APEX_TIMER_STOP(3);
 #endif
     }
@@ -168,13 +171,29 @@ void read_peer(struct var *u, struct couple_map *cmap, int ts)
         adios2_step_status astat;
         adios2_variable *in_var;
         adios2_begin_step(cmap->eng_read, adios2_step_mode_read, 60, &astat);
-        in_var = adios2_inquire_variable(cmap->io_heat, "u");
+        if(astat != adios2_step_status_ok) {
+            fprintf(stderr, "ERROR: adios2_begin_step failed with %i\n", astat);
+        }
+        in_var = adios2_inquire_variable(cmap->io_heat_in, cmap->isLeft ? "ur2l" : "ul2r");
+        if(!in_var) {
+            fprintf(stderr, "ERROR: no variable returned.\n");
+            adios2_variable **all_vars;
+            char var_name[256];
+            size_t num_var;
+            adios2_inquire_all_variables(&all_vars, &num_var, cmap->io_heat_in);
+            fprintf(stderr, " found %i variables\n", num_var);
+            for(i = 0; i < num_var; i++) {
+                size_t var_size;
+                adios2_variable_name(var_name, &var_size, all_vars[i]);
+                fprintf(stderr, "  variable %i: %s\n", i, var_name);
+            }
+        }
         l_dims[0] = (cmap->g_ub[0] - cmap->g_lb[0]) + 1;
         l_dims[1] = (cmap->g_ub[1] - cmap->g_lb[1]) + 1;
         l_offset[0] = cmap->g_lb[0];
         l_offset[1] = cmap->g_lb[1];
         adios2_set_selection(in_var, 2, l_offset, l_dims); 
-        adios2_get_by_name(cmap->eng_read, "u", cmap->buf_raw, adios2_mode_deferred);
+        adios2_get(cmap->eng_read, in_var, cmap->buf_raw, adios2_mode_deferred);
         adios2_end_step(cmap->eng_read);
 #endif
     } else {
@@ -334,14 +353,20 @@ int main(int argc, char **argv)
             if(dom.xl < peer_dom.xl && ts > 1) {
 #ifdef HAVE_ADIOS2
                 if(cmap->comm_type == COMM_ADIOS && ts == 2) {
-                    cmap->eng_read = adios2_open(cmap->io_heat, "r2l.bp", adios2_mode_read);
+                    cmap->eng_read = adios2_open(cmap->io_heat_in, "r2l.bp", adios2_mode_read);
+                    if(!cmap->eng_read) {
+                        fprintf(stderr, "ERROR: failed to open read engine.\n");
+                    }
                 }
 #endif
                 read_peer(varU, cmap, ts-1);
             } else if(dom.xl >= peer_dom.xl) {
 #ifdef HAVE_ADIOS2
                 if(cmap->comm_type == COMM_ADIOS && ts == 1) {
-                    cmap->eng_read = adios2_open(cmap->io_heat, "l2r.bp", adios2_mode_read);
+                    cmap->eng_read = adios2_open(cmap->io_heat_in, "l2r.bp", adios2_mode_read);
+                    if(!cmap->eng_read) {
+                        fprintf(stderr, "ERROR: failed to open read engine.\n");
+                    }
                 }
 #endif
                 read_peer(varU, cmap, ts);
@@ -354,8 +379,10 @@ int main(int argc, char **argv)
         if(cmap) {
 #ifdef HAVE_ADIOS2
             if(cmap->comm_type == COMM_ADIOS && ts == 1) {
-                fprintf(stderr, "opening write engine\n");
-                cmap->eng_write = adios2_open(cmap->io_heat, (dom.xl < peer_dom.xl) ? "l2r.bp" : "r2l.bp", adios2_mode_write);
+                cmap->eng_write = adios2_open(cmap->io_heat_out, (dom.xl < peer_dom.xl) ? "l2r.bp" : "r2l.bp", adios2_mode_write);
+                if(!cmap->eng_write) {
+                    fprintf(stderr, "ERROR: failed to open write engine.\n");
+                }
             }
 #endif
             write_stage(varU, cmap, ts);
@@ -389,7 +416,8 @@ int main(int argc, char **argv)
             }
             dspaces_fini(cmap->dsp);
         } else {
-#ifdef COMM_ADIOS2
+#ifdef HAVE_ADIOS2
+            fprintf(stderr, "closing engines\n");
             adios2_close(cmap->eng_read);
             adios2_close(cmap->eng_write);
             adios2_finalize(cmap->ad);
