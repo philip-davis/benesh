@@ -181,7 +181,7 @@ void read_peer(struct var *u, struct couple_map *cmap, int ts)
             char var_name[256];
             size_t num_var;
             adios2_inquire_all_variables(&all_vars, &num_var, cmap->io_heat_in);
-            fprintf(stderr, " found %i variables\n", num_var);
+            fprintf(stderr, " found %zi variables\n", num_var);
             for(i = 0; i < num_var; i++) {
                 size_t var_size;
                 adios2_variable_name(var_name, &var_size, all_vars[i]);
@@ -229,7 +229,7 @@ void write_stage(struct var *u, struct couple_map *cmap, int ts)
         adios2_end_step(cmap->eng_write);
 #endif
     } else {
-        dspaces_put(cmap->dsp, cmap->stage_var, ts, sizeof(double), 2, cmap->g_lb, cmap->g_ub, cmap->buf_raw);
+        dspaces_put_local(cmap->dsp, cmap->stage_var, ts, sizeof(double), 2, cmap->g_lb, cmap->g_ub, cmap->buf_raw);
     }
     APEX_TIMER_STOP(0);
 }
