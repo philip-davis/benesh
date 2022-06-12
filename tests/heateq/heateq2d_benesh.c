@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     offset[1] = dims[1] * yrank;
     grid_size[0] = xdim;
     grid_size[1] = ydim;
-    benesh_bind_domain(bnh, dom_name, offset, dims, grid_size, 1); 
+    benesh_bind_grid_domain(bnh, dom_name, offset, dims, grid_size, 1); 
     x0 = dom_lb[0];
     y0 = dom_lb[1];
     x1 = dom_ub[0];

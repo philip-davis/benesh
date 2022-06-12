@@ -19,7 +19,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 int benesh_bind_method(struct benesh_handle *bnh, const char *name,
                        benesh_method method, void *user_arg);
 
-int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
+int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                        double *grid_offset, double *grid_dims,
                        uint64_t *grid_points, int alloc);
 

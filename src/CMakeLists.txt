@@ -6,6 +6,9 @@ include (CMakePackageConfigHelpers)
 # where to install files for "find_package"
 set (benesh-pkg "share/cmake/dspaces")
 
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+#set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+
 add_library(benesh 
             benesh.c
             redev_wrapper.cpp

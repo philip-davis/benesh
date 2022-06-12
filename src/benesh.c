@@ -44,11 +44,17 @@
         }                                                                      \
     } while(0);
 
+#define BNH_DOM_GRID 1
+#define BNH_DOM_MESH 2
+
 struct wf_domain {
     char *name;
     char *full_name;
     int dim;
-    double *lb;
+    union {
+        double *lb;
+        int class_range[2];
+    };
     double *ub;
     double *l_offset;
     uint64_t *l_grid_pts;
@@ -58,6 +64,7 @@ struct wf_domain {
     int32_t *rdv_dest;
     int32_t *rdv_offset;
     size_t rdv_count;
+    int type;
 };
 
 struct tpoint_rule {
@@ -1466,6 +1473,7 @@ static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
     strcat(dom->full_name, conf_dom->name);
     dom->name = conf_dom->name;
     attrnodes = xc_get_all(conf_dom->decl, XC_NODE_ATTR, &attr_count);
+    dom->type = BNH_DOM_GRID;
     for(i = 0; i < attr_count; i++) {
         attr = attrnodes[i]->decl;
         if(strcmp(attr->name, "range") == 0) {
@@ -1481,9 +1489,17 @@ static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
             }
             range_found = 1;
             break;
+        } else if(strcmp(attr->name, "mesh") == 0) {
+            dom->type = BNH_DOM_MESH;
+        } else if(strcmp(attr->name, "class") == 0) {
+            dom->type = BNH_DOM_MESH;
+            node = attr->val;
+            ival = node->decl;
+            dom->class_range[0] = ival->idmin;
+            dom->class_range[1] = ival->idmax;
         }
     }
-    if(!range_found) {
+    if(!range_found && dom->type == BNH_DOM_GRID) {
         fprintf(stderr, "ERROR: no range found for domain.\n");
     }
     domnodes = xc_get_all(conf_dom->decl, XC_NODE_DOM, &dom->subdom_count);
@@ -2069,6 +2085,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
                       "components.\n");
             for(i = 0; i < bnh->comp_count; i++) {
                 if(strcmp(bnh->comps[i].app, bnh->name) != 0) {
+                    DEBUG_OUT("checking bidi status of component '%s'\n",  bnh->comps[i].app);
                     ekt_is_bidi(bnh->ekth, bnh->comps[i].app, 1);
                 }
             }
@@ -3257,7 +3274,21 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     (*offset)[pos] = pts;
 }
 
-int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
+int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
+                       char *grid_file, char *cpn_file)
+{
+    struct wf_domain *dom;
+
+    dom = match_domain(bnh, dom_name);
+    if(dom->type != BNH_DOM_MESH) {
+        fprintf(stderr, "ERROR: binding a mesh to grid '%s' is not implemented yet.\n", dom_name);
+        return(-1);
+    }
+
+    return(0);
+}
+
+int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                        double *grid_offset, double *grid_dims,
                        uint64_t *grid_points, int alloc)
 {
@@ -3267,6 +3298,10 @@ int benesh_bind_domain(struct benesh_handle *bnh, const char *dom_name,
     int i, j;
 
     dom = match_domain(bnh, dom_name);
+    if(dom->type != BNH_DOM_GRID) {
+        fprintf(stderr, "ERROR: binding grid dimensions to mesh '%s' is not implemented yet.\n", dom_name); 
+        return(-1);
+    }
     dom->l_offset = malloc(sizeof(*dom->l_offset) * dom->dim);
     // TODO: move this to config file - it should be global
     dom->l_grid_dims = malloc(sizeof(*dom->l_grid_dims) * dom->dim);
@@ -3323,6 +3358,9 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
     dom = var->dom;
     *dom_name = strdup(dom->full_name);
+    if(dom->type == BNH_DOM_MESH) {
+        return(0);
+    }
     if(ndim) {
         *ndim = dom->dim;
     }

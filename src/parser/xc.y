@@ -40,8 +40,8 @@
 %type <val> ivalclose ivalopen
 
 %type <ptr> arglist array asgexpr cardinality compdecl component
-%type <ptr> dasgstmt domblock dombody domsubdecl expr exprblk intfblock
-%type <ptr> intfbody ival intfsubdecl methexpr methname methodblk
+%type <ptr> dasgstmt domblock dombody domsubdecl expr exprblk idrange
+%type <ptr> intfblock intfbody ival intfsubdecl methexpr methname methodblk
 %type <ptr> methoddecl methodsubdecl numlist objname objtransform pbblk
 %type <ptr> pointblock pqcslist pqexpr pqlist pqobj pqpart range
 %type <ptr> rhs tfrexpr tgtblock tlblock vardecl varlist varmap vartype
@@ -463,6 +463,11 @@ rhs :
         $$ = xc_new_attr(NULL, $1, XC_ATTR_RANGE, NULL);
     }
     |
+    idrange {
+        struct xc_list_node *node = xc_new_list_node($1, XC_NODE_IVAL);
+        $$ = xc_new_attr(NULL, node, XC_ATTR_IDRANGE, NULL);
+    }
+    |
     ID {
         $$ = xc_new_attr(NULL, strdup($1), XC_ATTR_STR, NULL);
     }
@@ -488,9 +493,23 @@ range :
     }
     ;
 
+idrange :
+    '<' ICONST {
+        $$ = xc_new_idival(-1, $2, XC_IVAL_CLOSED,  XC_IVAL_OPEN);
+    }
+    |
+    '>' ICONST {
+        $$ = xc_new_idival($2, -1, XC_IVAL_OPEN, XC_IVAL_CLOSED);
+    }
+    |
+    ICONST NEG ICONST {
+        $$ =  xc_new_idival($1, $3, XC_IVAL_CLOSED, XC_IVAL_CLOSED);
+    }   
+    ;
+
 ival :
     ivalopen num ',' num ivalclose {
-        struct xc_ival *ival = xc_new_ival($2, $4, $1, $5);
+        struct xc_ival *ival = xc_new_rival($2, $4, $1, $5);
         $$ = xc_new_list_node(ival, XC_NODE_IVAL);
     }
     ;

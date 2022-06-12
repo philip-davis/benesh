@@ -30,30 +30,33 @@ extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
     static auto cuts = redev::Reals(rdvRanks);
     static auto ptn = redev::RCBPtn(dim, ranks, cuts);
     static redev::Redev rdv(*comm, ptn, isRdv);
-    rdv.Setup();
+    //rdv.Setup();
     static std::string name = "rendezvous";
-    return (struct rdv_comm *)(new redev::AdiosComm<redev::LO>(
-        *comm, ranks.size(), rdv.getToEngine(), rdv.getIO(), name));
+    //return (struct rdv_comm *)(new redev::AdiosComm<redev::LO>(
+    //    *comm, ranks.size(), rdv.getToEngine(), rdv.getIO(), name));
+    adios2::Params params{ {"Streaming", "On"}, {"OpenTimeoutSecs", "2"}};
+    return((struct rdv_comm *)(new  redev::CommPair<redev::LO>(rdv.CreateAdiosClient<redev::LO>(name,params,false))));
 }
 
 extern "C" void rdv_send(struct rdv_comm *comm, int count, int32_t *dest,
                          int32_t *offset, size_t buflen, int32_t *buffer)
 {
     //fprintf(stderr, "in rdv_send\n");
-    redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
+    redev::CommPair<redev::LO> *commPair = (redev::CommPair<redev::LO> *)comm;
     redev::LOs destv(dest, dest + count);
     redev::LOs offsetv(offset, offset + count + 1);
     redev::LOs msgs(buffer, buffer + buflen);
     //fprintf(stderr, "packing\n");
-    rdv_comm->Pack(destv, offsetv, msgs.data());
+    commPair->c2s.SetOutMessageLayout(destv, offsetv);
     //fprintf(stderr, "sending\n");
-    rdv_comm->Send();
+    commPair->c2s.Send(msgs.data());
 }
 
 extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer)
 {
     //fprintf(stderr, "in redv_recv\n");
-    redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
+    //redev::AdiosComm<redev::LO> *rdv_comm = (redev::AdiosComm<redev::LO> *)comm;
+    redev::CommPair<redev::LO> *commPair = (redev::CommPair<redev::LO> *)comm;
     redev::LO *msgs;
     static redev::GOs rdvSrcRanks;
     static redev::GOs offsets;
@@ -62,8 +65,9 @@ extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer)
 
     std::stringstream ss;
     auto start = std::chrono::steady_clock::now();
-    rdv_comm->Unpack(rdvSrcRanks, offsets, msgs, msgStart, msgCount,
-                     knownSizes);
+    //rdv_comm->Unpack(rdvSrcRanks, offsets, msgs, msgStart, msgCount,
+    //                 knownSizes);
+    commPair->c2s.Recv();
     auto end = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed_seconds = end-start;
     double min, max, avg;

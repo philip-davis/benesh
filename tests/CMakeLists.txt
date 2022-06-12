@@ -1,3 +1,6 @@
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
+
 add_executable(smoke smoke/smoke.c)
 
 target_include_directories(smoke PRIVATE 
@@ -6,13 +9,21 @@ target_include_directories(smoke PRIVATE
 target_compile_options(smoke PRIVATE ${MPI_C_COMPILE_FLAGS})
 target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
 
-add_executable(bredev redev/util_benchsrBenesh.cpp)
+#add_executable(bredev redev/util_benchsrBenesh.cpp)
 
-target_include_directories(bredev PRIVATE
+#target_include_directories(bredev PRIVATE
+#    ${MPI_CXX_INCLUDE_PATH}
+#)
+#target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+#target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+
+add_executable(bredev_oh omegah/test_twoClientOverlap.cpp omegah/test_support.cpp)
+
+target_include_directories(bredev_oh PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
-target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+target_compile_options(bredev_oh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(bredev_oh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h)
 
 add_executable(heateq_adhoc heateq/heateq2d_adhoc.c heateq/heat.c)
 

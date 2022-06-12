@@ -90,7 +90,14 @@ typedef enum xc_ival_t { XC_IVAL_OPEN, XC_IVAL_CLOSED } xc_ival_t;
 
 struct xc_ival {
     xc_ival_t min_t, max_t;
-    double min, max;
+    union {
+        double min;
+        int idmin;
+    };
+    union {
+        double max;
+        int idmax;
+    };
 };
 
 typedef enum xc_attrval_t {
@@ -98,7 +105,8 @@ typedef enum xc_attrval_t {
     XC_ATTR_INT,
     XC_ATTR_RANGE,
     XC_ATTR_STR,
-    XC_ATTR_ARR
+    XC_ATTR_ARR,
+    XC_ATTR_IDRANGE
 } xc_attrval_t;
 
 struct xc_conf_attr {
@@ -214,8 +222,9 @@ struct xc_domain_map *xc_new_dmap(struct xc_config *conf,
 struct xc_domain *xc_new_domain(const char *name, struct xc_list_node *decl);
 struct xc_expr *xc_new_expr(void *left, void *right, xc_expr_t type);
 struct xc_iface *xc_new_iface(const char *name, struct xc_list_node *decl);
-struct xc_ival *xc_new_ival(double min, double max, xc_ival_t min_t,
+struct xc_ival *xc_new_rival(double min, double max, xc_ival_t min_t,
                             xc_ival_t max_t);
+struct xc_ival *xc_new_idival(int idmin, int idmax, xc_ival_t min_t, xc_ival_t max_t);
 struct xc_list_node *xc_new_list_node(void *decl, xc_node_t type);
 struct xc_conf_method *xc_new_method(const char *name,
                                      struct xc_list_node *args,

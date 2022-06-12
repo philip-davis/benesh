@@ -436,7 +436,7 @@ struct xc_domain *xc_new_domain(const char *name, struct xc_list_node *decl)
     return (domain);
 }
 
-struct xc_ival *xc_new_ival(double min, double max, xc_ival_t min_t,
+struct xc_ival *xc_new_rival(double min, double max, xc_ival_t min_t,
                             xc_ival_t max_t)
 {
     struct xc_ival *ival = malloc(sizeof(*ival));
@@ -447,6 +447,18 @@ struct xc_ival *xc_new_ival(double min, double max, xc_ival_t min_t,
     ival->max_t = max_t;
 
     return (ival);
+}
+
+struct xc_ival *xc_new_idival(int idmin, int idmax, xc_ival_t min_t, xc_ival_t max_t)
+{
+    struct xc_ival *ival = malloc(sizeof(*ival));
+
+    ival->idmin = idmin;
+    ival->idmax = idmax;
+    ival->min_t = min_t;
+    ival->max_t = max_t;
+
+    return(ival);
 }
 
 struct xc_conf_attr *xc_new_attr(const char *name, void *val, xc_attrval_t type,
