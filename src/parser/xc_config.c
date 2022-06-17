@@ -593,7 +593,8 @@ struct xc_list_node *xc_strto_obj(const char *str)
 
 struct xc_domain_map *xc_new_dmap(struct xc_config *conf,
                                   struct xc_list_node *obj,
-                                  struct xc_list_node *dobj)
+                                  struct xc_list_node *dobj,
+                                  struct xc_list_node *attrs)
 {
     struct xc_domain_map *dmap = malloc(sizeof(*dmap));
     // struct xc_list_node *subconf = conf->subconf;
@@ -604,8 +605,19 @@ struct xc_domain_map *xc_new_dmap(struct xc_config *conf,
 
     dnode = xc_find_obj(conf->subconf, dobj, XC_NODE_DOM);
     dmap->domain = dnode ? dnode->decl : NULL;
+    dmap->attrs = attrs;
 
     return (dmap);
+}
+
+struct xc_dmap_attr *xc_new_dmap_attr(xc_dmap_attr_t type, void *val)
+{
+    struct xc_dmap_attr *dmattr = malloc(sizeof(*dmattr));
+
+    dmattr->type = type;
+    dmattr->val = val;
+
+    return(dmattr);
 }
 
 struct xc_msub *xc_new_msub(struct xc_list_node *val, xc_msub_t type)

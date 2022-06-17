@@ -12,6 +12,8 @@ set (benesh-pkg "share/cmake/dspaces")
 add_library(benesh 
             benesh.c
             redev_wrapper.cpp
+            omegah_wrapper.cpp
+            test_support.cpp
 )
 
 target_include_directories(benesh PRIVATE
@@ -25,7 +27,8 @@ target_link_libraries(benesh PRIVATE
                       ekt
                       argobots
                       redev::redev
-                      adios2::adios2)
+                      adios2::adios2
+                      Omega_h::omega_h)
 
 target_include_directories (benesh BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)

@@ -40,9 +40,10 @@
 %type <val> ivalclose ivalopen
 
 %type <ptr> arglist array asgexpr cardinality compdecl component
-%type <ptr> dasgstmt domblock dombody domsubdecl expr exprblk idrange
-%type <ptr> intfblock intfbody ival intfsubdecl methexpr methname methodblk
-%type <ptr> methoddecl methodsubdecl numlist objname objtransform pbblk
+%type <ptr> dasgattr dasgattrlist dasgstmt domblock dombody
+%type <ptr> domsubdecl expr exprblk idrange intfblock intfbody
+%type <ptr> ival intfsubdecl methexpr methname methodblk methoddecl 
+%type <ptr> methodsubdecl numlist objname objtransform pbblk
 %type <ptr> pointblock pqcslist pqexpr pqlist pqobj pqpart range
 %type <ptr> rhs tfrexpr tgtblock tlblock vardecl varlist varmap vartype
 %type <ptr> varver varverlist vmasg vmasglist
@@ -598,8 +599,8 @@ compdecl :
     ;
 
 dasgstmt :
-    pqobj DASG objname {
-        struct xc_domain_map *dmap = xc_new_dmap(wf, $1, $3);
+    pqobj DASG objname dasgattrlist {
+        struct xc_domain_map *dmap = xc_new_dmap(wf, $1, $3, $4);
         if(!dmap->domain) {
             char *msg;
             char *objname = xc_obj_tostr($3);
@@ -639,6 +640,27 @@ objname :
     |
     ID {
         $$ = xc_new_list_node($1, XC_NODE_STR);
+    }
+    ;
+
+dasgattrlist :
+    dasgattr ',' dasgattrlist {
+        struct xc_list_node *node = xc_new_list_node($1, XC_NODE_ATTR);
+        node->next = $3;
+        $$ = node;    
+    }
+    |
+    dasgattr {
+        $$ = xc_new_list_node($1, XC_NODE_ATTR);
+    }
+    | /* empty */ {
+        $$ = NULL;
+    }
+    ;
+
+dasgattr :
+    '^' ID {
+        $$ = xc_new_dmap_attr(XC_DMAP_ATTR_STR, $2);
     }
     ;
 

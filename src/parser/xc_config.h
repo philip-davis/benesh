@@ -126,6 +126,16 @@ struct xc_domain_map {
     char *name;
     struct xc_list_node *obj;
     struct xc_domain *domain;
+    struct xc_list_node *attrs;
+};
+
+typedef enum xc_dmap_attr_t {
+    XC_DMAP_ATTR_STR
+} xc_dmap_attr_t;
+
+struct xc_dmap_attr {
+    void *val;
+    xc_dmap_attr_t type;
 };
 
 typedef enum xc_pqexpr_t {
@@ -218,7 +228,9 @@ struct xc_conf_var *xc_new_conf_var(const char *name, struct xc_base_type *base,
                                     struct xc_card *card, void *val);
 struct xc_domain_map *xc_new_dmap(struct xc_config *conf,
                                   struct xc_list_node *obj,
-                                  struct xc_list_node *dobj);
+                                  struct xc_list_node *dobj,
+                                  struct xc_list_node *attrs);
+struct xc_dmap_attr *xc_new_dmap_attr(xc_dmap_attr_t type, void *val);
 struct xc_domain *xc_new_domain(const char *name, struct xc_list_node *decl);
 struct xc_expr *xc_new_expr(void *left, void *right, xc_expr_t type);
 struct xc_iface *xc_new_iface(const char *name, struct xc_list_node *decl);

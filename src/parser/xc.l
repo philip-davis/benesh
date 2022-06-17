@@ -222,7 +222,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
     BEGIN(normal);
     return(CLEXPR);
 }
-<obj>[:=@<>\(\)\[\],%{+] {
+<obj>[:=@<>\(\)^\[\],%{+] {
 
     BEGIN(normal);
     return(yytext[0]);

@@ -14,6 +14,7 @@
 #include <margo.h>
 #include <mpi.h>
 #include <unistd.h>
+#include "omegah_wrapper.h"
 
 #ifdef USE_APEX
 #include <apex.h>
@@ -63,6 +64,7 @@ struct wf_domain {
     struct wf_domain *subdoms;
     int32_t *rdv_dest;
     int32_t *rdv_offset;
+    struct rdv_ptn *rptn;
     size_t rdv_count;
     int type;
 };
@@ -1396,18 +1398,22 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         if(strcmp(comp->app, bnh->name) != 0) {
             DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
             ekt_connect(bnh->ekth, comp->app);
-            if(strcmp(comp->name, "App") == 0) {
+            if(strcmp(comp->name, "Coupler") == 0) {
                 DEBUG_OUT("We are talking to rdv\n");
                 bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
+                /*
                 bnh->comps[i].rdv =
-                    new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 0);
+                    new_rdv_comm_ptn(&bnh->mycomm, bnh->rdvRanks, 0);
                 DEBUG_OUT("rdv_comm is %p\n", (void *)bnh->comps[i].rdv);
-            } else if(strcmp(comp->name, "Participant") == 0) {
+                */
+            } else if(strstr(comp->name, "Client") == 0) {
                 DEBUG_OUT("We are rdv\n");
                 bnh->rdvRanks = bnh->comm_size;
+                /*
                 bnh->comps[i].rdv =
                     new_rdv_comm(&bnh->mycomm, bnh->rdvRanks, 1);
                 DEBUG_OUT("rdv_comm is %p\n", (void *)bnh->comps[i].rdv)
+                */
             }
             if(bnh->rdvRanks) {
                 DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
@@ -2683,11 +2689,24 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 
 int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 {
+    struct wf_target *tgt = wnode->tgt;
     struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 2];  // subrules start at 1
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
-  
+    struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
+    struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
+    size_t num_elem;
+
     DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
-    rdv_recv(src_comp->rdv, bnh->rank, NULL);
+    if(dst_var->buf) {
+        free(dst_var->buf);
+    }
+    rdv_recv(src_comp->rdv, bnh->rank, &dst_var->buf, &num_elem);
+    dst_var->buf_size = num_elem;
+    if(dst_var->type == BNH_TYPE_INT) {
+        dst_var->buf_size *= 4;
+    } else if(dst_var->type == BNH_TYPE_FP) {
+        dst_var->buf_size *= 8;
+    }
     return(1);
 }
 
@@ -3284,6 +3303,14 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
         fprintf(stderr, "ERROR: binding a mesh to grid '%s' is not implemented yet.\n", dom_name);
         return(-1);
     }
+
+    if(!bnh->rdvRanks) {
+        fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
+        return(-1);
+    }
+
+    //if(
+    //dom->rptn = new_rdv_comm_ptn(&bnh->mycomm, 
 
     return(0);
 }
