@@ -149,8 +149,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
     BEGIN(obj); // handle objparts that are just integers
     return(CLEXPR);
 }
-<normal>[:;<>\{\}\(\),\*\[\]=%\.@+] {
-
+<normal>[:;<>\{\}\(\),\*\[\]=%\.@+\^] {
     return(yytext[0]);
 }
 <normal>interface {
@@ -185,7 +184,6 @@ id  [A-Za-z_][A-Za-z0-9_]*
 }
 
 <normal>({D}*\.{D}+|{D}+\.{D}*) {
-
     lvalp->real = atof(yytext);
     return(RCONST);
 }
@@ -222,7 +220,7 @@ id  [A-Za-z_][A-Za-z0-9_]*
     BEGIN(normal);
     return(CLEXPR);
 }
-<obj>[:=@<>\(\)^\[\],%{+] {
+<obj>[:=@<>\(\)\^\[\],%{+] {
 
     BEGIN(normal);
     return(yytext[0]);

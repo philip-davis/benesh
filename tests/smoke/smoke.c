@@ -34,10 +34,23 @@ int main(int argc, char **argv)
     double *lb, *ub;
     double grid_offset, grid_dims;
     uint64_t grid_points;
+    int use_mesh = 0;
     char *dom_name;
+    char *mesh_file = NULL, *cpn_file = NULL;
+    ;
 
     if(argc < 2) {
         printf("don't forget component name...\n");
+    }
+
+    if(argc > 2) {
+        use_mesh = atoi(argv[2]);
+        if(argc > 3) {
+            mesh_file = argv[3];
+            if(argc == 5) {
+                cpn_file = argv[4];
+            }
+        }
     }
 
     MPI_Init(NULL, NULL);
@@ -50,10 +63,15 @@ int main(int argc, char **argv)
     benesh_get_var_domain(bnh, "u", &dom_name, &ndim, &lb, &ub);
     printf("dom_name = %s\n", dom_name);
 
-    grid_points = 8;
-    grid_dims = ((*ub - *lb) / comm_size);
-    grid_offset = grid_dims * rank;
-    benesh_bind_grid_domain(bnh, dom_name, &grid_offset, &grid_dims, &grid_points, 1);
+    if(use_mesh) {
+        benesh_bind_mesh_domain(bnh, dom_name, mesh_file, cpn_file, 1);
+    } else {
+        grid_points = 8;
+        grid_dims = ((*ub - *lb) / comm_size);
+        grid_offset = grid_dims * rank;
+        benesh_bind_grid_domain(bnh, dom_name, &grid_offset, &grid_dims,
+                                &grid_points, 1);
+    }
 
     if(strcmp(argv[1], "tptest") == 0) {
         fprintf(stderr, "I am sim\n");

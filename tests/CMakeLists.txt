@@ -19,6 +19,8 @@ target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
 
 add_executable(bredev_oh omegah/test_twoClientOverlap.cpp omegah/test_support.cpp)
 
+set_property(TARGET bredev_oh PROPERTY CXX_STANDARD 20)
+
 target_include_directories(bredev_oh PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )

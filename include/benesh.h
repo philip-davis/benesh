@@ -19,9 +19,14 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 int benesh_bind_method(struct benesh_handle *bnh, const char *name,
                        benesh_method method, void *user_arg);
 
+int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf);
+
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
-                       double *grid_offset, double *grid_dims,
-                       uint64_t *grid_points, int alloc);
+                            double *grid_offset, double *grid_dims,
+                            uint64_t *grid_points, int alloc);
+
+int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
+                            const char *grid_file, const char *cpn_file, int alloc);
 
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname);
 
@@ -30,7 +35,7 @@ int benesh_fini(struct benesh_handle *bnh);
 int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
                           char **dom_name, int *ndim, double **lb, double **ub);
 
-void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name);
+void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name, uint64_t *size);
 
 double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name);
 

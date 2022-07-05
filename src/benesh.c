@@ -5,6 +5,7 @@
 
 #include "benesh.h"
 #include "ihash.h"
+#include "omegah_wrapper.h"
 #include "redev_wrapper.h"
 #include "xc_config.h"
 #include <abt.h>
@@ -14,7 +15,6 @@
 #include <margo.h>
 #include <mpi.h>
 #include <unistd.h>
-#include "omegah_wrapper.h"
 
 #ifdef USE_APEX
 #include <apex.h>
@@ -62,11 +62,15 @@ struct wf_domain {
     double *l_grid_dims;
     int subdom_count;
     struct wf_domain *subdoms;
-    int32_t *rdv_dest;
-    int32_t *rdv_offset;
+    struct omegah_mesh *mesh;
+    struct rdv_comm *rdv;
+    size_t rdv_dst_count;
+    uint32_t *rdv_dest;
+    uint32_t *rdv_offset;
     struct rdv_ptn *rptn;
     size_t rdv_count;
     int type;
+    int comm_type;
 };
 
 struct tpoint_rule {
@@ -195,6 +199,10 @@ struct wf_component {
 #define BNH_TYPE_INT 0
 #define BNH_TYPE_FP 1
 
+#define BNH_COMM_DSP 0
+#define BNH_COMM_RDV_SRV 1
+#define BNH_COMM_RDV_CLI 2
+
 struct wf_var {
     char *name;
     int type;
@@ -206,6 +214,7 @@ struct wf_var {
     struct wf_domain *dom;
     struct xc_int_hash_map *versions;
     int comp_id;
+    int comm_type;
 };
 
 struct wf_method {
@@ -341,7 +350,7 @@ char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
                 return (res);
             }
         }
-        return(strdup("<err>"));
+        return (strdup("<err>"));
     } else {
         return (strdup(tgt->obj_name[pos]));
     }
@@ -1362,6 +1371,7 @@ static void benesh_init_comps(struct benesh_handle *bnh)
     struct xc_conf_var *var;
     struct xc_domain_map *dmap;
     struct wf_var *wf_var, *if_var;
+    struct xc_dmap_attr *dmattr;
     char *var_name;
     int found;
     int i, j;
@@ -1391,6 +1401,7 @@ static void benesh_init_comps(struct benesh_handle *bnh)
             if(i == bnh->comp_id) {
                 if_var[j].versions = xc_new_ihash_map(32, 1);
             }
+            if_var[j].comm_type = BNH_COMM_DSP;
         }
         free(varnodes);
         if_var += var_count;
@@ -1448,9 +1459,39 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         }
         if(!found) {
             fprintf(stderr, "ERROR: no component %s for domain map.\n",
-                    bnh->comps[j].name);
+                    (char *)dmap->obj->decl);
         } else {
             wf_var->dom = match_conf_domain(bnh, dmap->domain);
+            if(dmap->attrs) {
+                node = dmap->attrs;
+                dmattr = node->decl;
+                if(strcmp(dmattr->val, "rdv_server") == 0) {
+                    if(wf_var->dom->comm_type == BNH_COMM_RDV_CLI) {
+                        fprintf(stderr,
+                                "WARNING: %s being marked rdv server, already "
+                                "client.\n",
+                                wf_var->dom->full_name);
+                    }
+                    wf_var->dom->comm_type = BNH_COMM_RDV_SRV;
+                    DEBUG_OUT("component %s is rdv-server for var '%s'\n",
+                              bnh->comps[wf_var->comp_id].name, wf_var->name);
+                } else if(strcmp(dmattr->val, "rdv_client") == 0) {
+                    if(wf_var->dom->comm_type == BNH_COMM_RDV_SRV) {
+                        fprintf(stderr,
+                                "WARNING: %s being marked rdv client, already "
+                                "server.\n",
+                                wf_var->dom->full_name);
+                    }
+                    wf_var->dom->comm_type = BNH_COMM_RDV_CLI;
+                    DEBUG_OUT("component %s is rdv-client for var '%s'\n",
+                              bnh->comps[wf_var->comp_id].name, wf_var->name);
+                } else {
+                    fprintf(
+                        stderr,
+                        "WARNING: unimplemented domain map attribute '%s'\n",
+                        (char *)dmattr->val);
+                }
+            }
         }
     }
     free(dmapnodes);
@@ -1466,6 +1507,8 @@ static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
     int range_found = 0;
     struct xc_ival *ival;
     int i, j;
+
+    DEBUG_OUT("loading domain %s with prefix %s\n", conf_dom->name, prefix);
 
     if(prefix) {
         dom->full_name = malloc(strlen(prefix) + strlen(conf_dom->name) + 2);
@@ -1512,7 +1555,7 @@ static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
     if(dom->subdom_count > 0) {
         dom->subdoms = malloc(sizeof(*dom->subdoms) * dom->subdom_count);
         for(i = 0; i < dom->subdom_count; i++) {
-            load_domain(bnh, domnodes[i], &dom->subdoms[i], dom->name);
+            load_domain(bnh, domnodes[i], &dom->subdoms[i], dom->full_name);
         }
     }
 }
@@ -2091,7 +2134,8 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
                       "components.\n");
             for(i = 0; i < bnh->comp_count; i++) {
                 if(strcmp(bnh->comps[i].app, bnh->name) != 0) {
-                    DEBUG_OUT("checking bidi status of component '%s'\n",  bnh->comps[i].app);
+                    DEBUG_OUT("checking bidi status of component '%s'\n",
+                              bnh->comps[i].app);
                     ekt_is_bidi(bnh->ekth, bnh->comps[i].app, 1);
                 }
             }
@@ -2647,10 +2691,15 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *dst_dom = dst_var->dom;
     double *goff_lb, *goff_ub;
 
-    if(bnh->rdvRanks) {
-        DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n", (void *) dst_comp->rdv, src_dom->l_grid_pts[0], src_var->buf_size);
-        rdv_send(dst_comp->rdv, src_dom->rdv_count, src_dom->rdv_dest,
-                 src_dom->rdv_offset, src_dom->l_grid_pts[0], src_var->buf);
+    if(src_dom->comm_type == BNH_COMM_RDV_SRV ||
+       src_dom->comm_type == BNH_COMM_RDV_CLI) {
+        /*
+        DEBUG_OUT("sending using rendezvous %p (%li points: %zi bytes)\n",
+                  (void *)dst_comp->rdv, src_dom->l_grid_pts[0],
+                  src_var->buf_size);
+        */
+        DEBUG_OUT("sending %li bytes using rendezvous %p\n", src_var->buf_size, src_dom->rdv);
+        rdv_send(src_dom->rdv, src_var->buf);
         DEBUG_OUT("sent\n");
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
@@ -2662,7 +2711,8 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
-    struct sub_rule *prule = &tgt->subrule[wnode->subrule - 2]; // subrules start at 1
+    struct sub_rule *prule =
+        &tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
@@ -2670,11 +2720,12 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *dst_dom = dst_var->dom;
     double *lb, *ub, *goff_lb, *goff_ub;
 
-    if(bnh->rdvRanks) {
+    if(dst_dom->comm_type == BNH_COMM_RDV_SRV ||
+       dst_dom->comm_type == BNH_COMM_RDV_CLI) {
         wnode->sub_req = 1;
         return 1;
     }
-    
+
     if(local_overlap(dst_dom, src_dom, &lb, &ub)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         sub_var(bnh, wnode, src_var, dst_var, tgt, wnode->subrule,
@@ -2690,50 +2741,66 @@ int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
 int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
-    struct sub_rule *prule = &wnode->tgt->subrule[wnode->subrule - 2];  // subrules start at 1
+    struct sub_rule *prule =
+        &wnode->tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
     struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
+    struct wf_var *src_var = &bnh->ifvars[prule->var_id];
+    struct wf_domain *src_dom = src_var->dom;
+
     size_t num_elem;
 
-    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id, (void *)src_comp->rdv); 
+    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id,
+              (void *)src_comp->rdv);
+
     if(dst_var->buf) {
         free(dst_var->buf);
     }
-    rdv_recv(src_comp->rdv, bnh->rank, &dst_var->buf, &num_elem);
+    rdv_recv(src_dom->rdv, bnh->rank, &dst_var->buf, &num_elem);
     dst_var->buf_size = num_elem;
     if(dst_var->type == BNH_TYPE_INT) {
         dst_var->buf_size *= 4;
     } else if(dst_var->type == BNH_TYPE_FP) {
         dst_var->buf_size *= 8;
     }
-    return(1);
+    return (1);
 }
 
 int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 {
+    struct wf_target *tgt = wnode->tgt;
+    struct sub_rule *srule;
+    struct wf_var *dst_var;
+    struct wf_domain *dom;
     struct data_sub *ds = wnode->ds;
     int ret;
     int result;
 
     APEX_FUNC_TIMER_START(check_sub);
     if(wnode->sub_req) {
-        if(bnh->rdvRanks) {
-            return(get_with_redev(bnh, wnode));
+        srule = &tgt->subrule[wnode->subrule - 1];
+        dst_var = &bnh->ifvars[srule->var_id];
+        dom = dst_var->dom;
+        if(dom->comm_type == BNH_COMM_RDV_SRV ||
+           dom->comm_type == BNH_COMM_RDV_CLI) {
+            DEBUG_OUT("getting data with rdv\n");
+            return (get_with_redev(bnh, wnode));
+        } else {
+            APEX_NAME_TIMER_START(1, "data_lock_csa");
+            ABT_mutex_lock(bnh->data_mutex);
+            APEX_TIMER_STOP(1);
+            ds->waiting = 1;
+            ABT_cond_broadcast(bnh->data_cond);
+
+            ABT_mutex_unlock(bnh->data_mutex);
+            DEBUG_OUT("waiting for dspaces_check_sub\n");
+            APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
+
+            ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
+                  DSPACES_SUB_DONE;
+            APEX_TIMER_STOP(2);
         }
-        APEX_NAME_TIMER_START(1, "data_lock_csa");
-        ABT_mutex_lock(bnh->data_mutex);
-        APEX_TIMER_STOP(1);
-        ds->waiting = 1;
-        ABT_cond_broadcast(bnh->data_cond);
-
-        ABT_mutex_unlock(bnh->data_mutex);
-        DEBUG_OUT("waiting for dspaces_check_sub\n");
-        APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
-
-        ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
-              DSPACES_SUB_DONE;
-        APEX_TIMER_STOP(2);
         DEBUG_OUT("dspaces_check_sub finished\n");
         APEX_TIMER_STOP(0);
         return (ret);
@@ -3219,6 +3286,51 @@ int benesh_bind_method(struct benesh_handle *bnh, const char *name,
     return (-1);
 }
 
+int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf)
+{
+    struct wf_var *var;
+    int i;
+    int found = 0;
+
+    for(i = 0; i < bnh->ifvar_count; i++) {
+        var = &bnh->ifvars[i];
+        if(var->comp_id == bnh->comp_id && strcmp(var->name, var_name) == 0) {
+            var->buf = buf;
+            found = 1;
+            break;
+        }
+    }
+
+    if(!found) {
+        fprintf(stderr,"WARNING: trying to bind unknown interface variable '%s'.\n", var_name);
+        return(1);
+    }
+
+    return(0);
+}
+
+static int same_root_domain(struct wf_domain *dom1, struct wf_domain *dom2)
+{
+    char *name1, *name2;
+
+    name1 = dom1->full_name;
+    name2 = dom2->full_name;
+
+    while(1) {
+        if(*name1 != *name2) {
+            return (0);
+        }
+        if(*name1 == '.' || *name1 == '\0') {
+            return (1);
+        }
+        name1++;
+        name2++;
+    }
+
+    fprintf(stderr, "ERROR: bugged out comparing root of %s and %s\n",
+            dom1->full_name, dom2->full_name);
+}
+
 struct wf_domain *match_domain(struct benesh_handle *bnh, const char *dom_name)
 {
     struct xc_list_node *obj;
@@ -3256,14 +3368,16 @@ int get_rank(double glb, double gub, int rdvRanks, double gpt)
 
 void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
                    int rdvRanks, double llb, double lub, uint64_t pts,
-                   int32_t **dest, int32_t **offset, size_t *count)
+                   uint32_t **dest, uint32_t **offset, size_t *count)
 {
     double pitch;
     double gpt;
     long i;
     int pos, rank;
 
-    DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n", llb, lub, glb, gub, rdvRanks, pts); 
+    DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] "
+              "subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n",
+              llb, lub, glb, gub, rdvRanks, pts);
     pitch = (lub - llb) / pts;
     DEBUG_OUT("pitch is %lf\n", pitch);
 
@@ -3293,31 +3407,183 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     (*offset)[pos] = pts;
 }
 
-int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
-                       char *grid_file, char *cpn_file)
+int allocate_rdvs(struct benesh_handle *bnh, struct wf_domain *dom,
+                  struct wf_domain *dom_list, int dom_count, int pos)
 {
-    struct wf_domain *dom;
+    int i;
+    int count = 0, count_once;
+
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].comm_type == BNH_COMM_RDV_CLI &&
+           same_root_domain(dom, &dom_list[i])) {
+            DEBUG_OUT("rdv server establishing communication on domain '%s'\n",
+                      dom_list[i].full_name);
+            //dom_list[i].rdv = malloc(sizeof(*dom_list[i].rdv));
+            dom_list[i].rdv = new_rdv_comm_ptn(
+                &bnh->mycomm, dom_list[i].full_name, 1, dom->rptn);
+            pos++;
+            count++;
+        }
+        if(dom_list[i].subdom_count) {
+            count_once = allocate_rdvs(bnh, dom, dom_list[i].subdoms,
+                                       dom_list[i].subdom_count, pos);
+            count += count_once;
+            pos += count_once;
+        }
+    }
+
+    return (count);
+}
+
+int find_client_domain_count(struct benesh_handle *bnh, struct wf_domain *dom,
+                             struct wf_domain *dom_list, int dom_count)
+{
+    int i;
+    int count = 0;
+
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].comm_type == BNH_COMM_RDV_CLI &&
+           same_root_domain(dom, &dom_list[i])) {
+            count++;
+        }
+        if(dom_list[i].subdom_count) {
+            count += find_client_domain_count(bnh, dom, dom_list[i].subdoms,
+                                              dom_list[i].subdom_count);
+        }
+    }
+
+    return (count);
+}
+
+struct wf_domain *find_server_dom(struct benesh_handle *bnh, struct wf_domain *dom,
+                                    struct wf_domain *dom_list, int dom_count)
+{
+    struct wf_domain *ret_dom;
+    int i;
+
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].comm_type == BNH_COMM_RDV_SRV && same_root_domain(dom, &dom_list[i])) {
+            return(&dom_list[i]);
+        }
+        if(dom_list[i].subdom_count) {
+            ret_dom = find_server_dom(bnh, dom, dom_list[i].subdoms, dom_list[i].subdom_count);
+            if(ret_dom) {
+                return(ret_dom);
+            }
+        }
+    }
+
+    return(NULL);
+}
+
+int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
+                            const char *grid_file, const char *cpn_file, int alloc)
+{
+    struct wf_domain *dom, *srv_dom;
+    struct wf_var *var;
+    int class_range[2] = {-1, -1};
+    int dom_cli_count = 0;
+    int nverts;
+    int i, pos = 0;
 
     dom = match_domain(bnh, dom_name);
     if(dom->type != BNH_DOM_MESH) {
-        fprintf(stderr, "ERROR: binding a mesh to grid '%s' is not implemented yet.\n", dom_name);
-        return(-1);
+        fprintf(stderr,
+                "ERROR: binding a mesh to grid '%s' is not implemented yet.\n",
+                dom_name);
+        return (-1);
     }
 
-    if(!bnh->rdvRanks) {
+    dom->mesh = new_oh_mesh(grid_file);
+    dom->rptn = create_oh_partition(dom->mesh, cpn_file);
+    if(dom->comm_type == BNH_COMM_RDV_CLI) {
+        DEBUG_OUT("rdv client connecting to server on domain '%s'\n",
+                  dom->full_name);
+        //dom->rdv = malloc(sizeof(*dom->rdv));
+        dom->rdv =
+            new_rdv_comm_ptn(&bnh->mycomm, dom->full_name, 0, dom->rptn);
+        DEBUG_OUT("rdv client comm is %p\n", (void *)dom->rdv);
+    } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
+        /*
+        for(i = 0; i < bnh->dom_count; i++) {
+            fprintf(stderr, "comparing root domain of %s and %s\n",
+        dom->full_name, bnh->doms[i].full_name); if(bnh->doms[i].comm_type ==
+        BNH_COMM_RDV_CLI && same_root_domain(dom, &bnh->doms[i])) {
+                dom_cli_count++;
+            }
+        }
+        */
+        dom_cli_count =
+            find_client_domain_count(bnh, dom, bnh->doms, bnh->dom_count);
+        DEBUG_OUT("rdv server connecting to %i clients\n", dom_cli_count);
+        //dom->rdv = malloc(sizeof(*dom->rdv) * dom_cli_count);
+        /*
+        for(i = 0; i < bnh->dom_count; i++) {
+            if(bnh->doms[i].comm_type == BNH_COMM_RDV_CLI &&
+        same_root_domain(dom, &bnh->doms[i])) { DEBUG_OUT("rdv server
+        establishing communication on domain '%s'\n", bnh->doms[i].full_name);
+                dom->rdv[pos++] = new_rdv_comm_ptn(&bnh->mycomm,
+        bnh->doms[i].full_name, 1, dom->rptn);
+            }
+        }
+        */
+        allocate_rdvs(bnh, dom, bnh->doms, bnh->dom_count, 0);
+    } else {
         fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
-        return(-1);
+        return (-1);
     }
 
-    //if(
-    //dom->rptn = new_rdv_comm_ptn(&bnh->mycomm, 
+    /*
+    for(i = 0; i < bnh->dom_count; i++) {
+        if(dom->comm_type == BNH_COMM_RDV_SRV &&
+           same_root_domain(dom, &bnh->doms[i])) {
+            if(srv_found) {
+                fprintf(
+                    stderr,
+                    "WARNING: multiple rdv servers for root domain of '%s'\n",
+                    dom->full_name);
+            } else {
+                DEBUG_OUT("Setting overlap for '%s 'on class %i to %i.\n",
+                          dom->full_name, bnh->doms[i].class_range[0],
+                          bnh->doms[i].class_range[1]);
+                mark_mesh_overlap(dom->mesh, bnh->doms[i].class_range[0],
+                                  bnh->doms[i].class_range[1]);
+                srv_found = 1;
+            }
+        }
+    }
+    */
+    srv_dom = find_server_dom(bnh, dom, bnh->doms, bnh->dom_count);
+    if(!srv_dom) {
+        fprintf(stderr,
+                "ERROR: no rdv server for domain '%s', which has client(s).\n",
+                dom->full_name);
+    }
+    mark_mesh_overlap(dom->mesh, srv_dom->class_range[0], srv_dom->class_range[1]);
 
-    return(0);
+    get_omegah_layout(dom->mesh, dom->rptn, &dom->rdv_dest, &dom->rdv_offset,
+                      &dom->rdv_dst_count);
+    nverts = get_mesh_nverts(dom->mesh);
+    for(i = 0; i < bnh->ifvar_count; i++) {
+        var = &bnh->ifvars[i];
+        if(var->dom == dom && var->comp_id == bnh->comp_id) {
+            var = &bnh->ifvars[i];
+            var->buf_size = sizeof(double) * nverts;
+            if(alloc) {
+                DEBUG_OUT(
+                        "allocating buffer of size %li bytes for var %s\n",
+                        var->buf_size, var->name);
+                    var->buf = malloc(var->buf_size);
+            }
+        }
+    }    
+
+    return (0);
 }
 
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
-                       double *grid_offset, double *grid_dims,
-                       uint64_t *grid_points, int alloc)
+                            double *grid_offset, double *grid_dims,
+                            uint64_t *grid_points, int alloc)
 {
     struct wf_domain *dom;
     struct wf_var *var;
@@ -3326,8 +3592,11 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
 
     dom = match_domain(bnh, dom_name);
     if(dom->type != BNH_DOM_GRID) {
-        fprintf(stderr, "ERROR: binding grid dimensions to mesh '%s' is not implemented yet.\n", dom_name); 
-        return(-1);
+        fprintf(stderr,
+                "ERROR: binding grid dimensions to mesh '%s' is not "
+                "implemented yet.\n",
+                dom_name);
+        return (-1);
     }
     dom->l_offset = malloc(sizeof(*dom->l_offset) * dom->dim);
     // TODO: move this to config file - it should be global
@@ -3339,7 +3608,8 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
         memcpy(dom->l_grid_pts, grid_points,
                sizeof(*dom->l_grid_pts) * dom->dim);
         for(i = 0; i < dom->dim; i++) {
-            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i], i);
+            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i],
+                      i);
             grid_size *= dom->l_grid_pts[i];
         }
         if(alloc) {
@@ -3351,7 +3621,9 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                     if(var->buf) {
                         free(var->buf);
                     }
-                    DEBUG_OUT("allocating buffer of size %li bytes for var %s\n", var->buf_size, var->name);
+                    DEBUG_OUT(
+                        "allocating buffer of size %li bytes for var %s\n",
+                        var->buf_size, var->name);
                     var->buf = malloc(var->buf_size);
                 }
             }
@@ -3386,7 +3658,7 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
     dom = var->dom;
     *dom_name = strdup(dom->full_name);
     if(dom->type == BNH_DOM_MESH) {
-        return(0);
+        return (0);
     }
     if(ndim) {
         *ndim = dom->dim;
@@ -3403,11 +3675,14 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
     return (0);
 }
 
-void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name)
+void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name, uint64_t *size)
 {
     struct wf_var *var;
 
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
+    if(size) {
+        *size = var->buf_size;
+    }
 
     return (var->buf);
 }

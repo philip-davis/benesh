@@ -157,8 +157,8 @@ int main(int argc, char **argv)
     dom.yl = y0;
     dom.yh = y1;
 
-    u_buf = benesh_get_var_buf(bnh, "u");
-    du_buf = benesh_get_var_buf(bnh, "du");
+    u_buf = benesh_get_var_buf(bnh, "u", NULL);
+    du_buf = benesh_get_var_buf(bnh, "du", NULL);
     varU = new_var_noalloc(xdim, ydim, xgrdim, ygrdim, xdim * xrank, ydim * yrank, 1, u_buf);
     varDU = new_var_noalloc(xdim, ydim, xgrdim, ygrdim, xdim * xrank, ydim * yrank, 0, du_buf);
     APEX_TIMER_STOP(2);
