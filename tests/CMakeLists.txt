@@ -17,7 +17,7 @@ target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
 #target_compile_options(bredev PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 #target_link_libraries(bredev ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
 
-add_executable(bredev_oh omegah/test_twoClientOverlap.cpp omegah/test_support.cpp)
+add_executable(bredev_oh omegah/test_twoClientOverlap.cpp)
 
 set_property(TARGET bredev_oh PROPERTY CXX_STANDARD 20)
 
