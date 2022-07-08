@@ -15,7 +15,7 @@ struct rdv_comm *new_rdv_comm_ptn(MPI_Comm *comm, const char *name, int isRdv,
 void rdv_layout(struct rdv_comm *comm, int count, uint32_t *dest,
                 uint32_t *offset);
 
-void rdv_send(struct rdv_comm *comm, void *buffer);
+void rdv_send(struct rdv_comm *comm, int rank, void *buffer);
 
 void rdv_recv(struct rdv_comm *comm, int rank, void **buffer, size_t *buflen);
 #endif

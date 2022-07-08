@@ -2699,7 +2699,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
                   src_var->buf_size);
         */
         DEBUG_OUT("sending %li bytes using rendezvous %p\n", src_var->buf_size, src_dom->rdv);
-        rdv_send(src_dom->rdv, src_var->buf);
+        rdv_send(src_dom->rdv, bnh->rank, src_var->buf);
         DEBUG_OUT("sent\n");
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);

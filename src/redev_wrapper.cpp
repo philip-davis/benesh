@@ -61,10 +61,22 @@ extern "C" void rdv_layout(struct rdv_comm *comm, int count, uint32_t *dest,
     commPair->c2s.SetOutMessageLayout(destv, offsetv);
 }
 
-extern "C" void rdv_send(struct rdv_comm *comm, void *buffer)
+extern "C" void rdv_send(struct rdv_comm *comm, int rank, void *buffer)
 {
     redev::CommPair<redev::GO> *commPair = (redev::CommPair<redev::GO> *)comm;
+    auto start = std::chrono::steady_clock::now();
     commPair->c2s.Send((redev::GO *)buffer);
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+
+    double min, max, avg;
+    timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
+    std::stringstream ss;
+    ss << " send";
+    std::string str = ss.str();
+    if(!rank)
+        printTime(str, min, max, avg);
+
 }
 
 extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer,
@@ -83,7 +95,7 @@ extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer,
     std::chrono::duration<double> elapsed_seconds = end - start;
     double min, max, avg;
     timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
-    ss << " unpack";
+    ss << " recv";
     std::string str = ss.str();
     if(!rank)
         printTime(str, min, max, avg);
