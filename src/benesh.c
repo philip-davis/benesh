@@ -3455,6 +3455,21 @@ int find_client_domain_count(struct benesh_handle *bnh, struct wf_domain *dom,
     return (count);
 }
 
+void update_layouts(struct benesh_handle *bnh, struct wf_domain *dom,
+                    struct wf_domain *dom_list, int dom_count)
+{
+    int i;
+
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].comm_type == BNH_COMM_RDV_CLI && same_root_domain(dom, &dom_list[i])) {
+            rdv_layout(dom_list[i].rdv, dom->rdv_dst_count, dom->rdv_dest, dom->rdv_offset);
+        }
+        if(dom_list[i].subdom_count) {
+            update_layouts(bnh, dom, dom_list[i].subdoms, dom_list[i].subdom_count);
+        }
+    }
+}
+
 struct wf_domain *find_server_dom(struct benesh_handle *bnh, struct wf_domain *dom,
                                     struct wf_domain *dom_list, int dom_count)
 {
@@ -3563,6 +3578,11 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
 
     get_omegah_layout(dom->mesh, dom->rptn, &dom->rdv_dest, &dom->rdv_offset,
                       &dom->rdv_dst_count);
+    if(dom->comm_type == BNH_COMM_RDV_CLI) {
+        rdv_layout(dom->rdv, dom->rdv_dst_count, dom->rdv_dest, dom->rdv_offset);
+    } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
+        update_layouts(bnh, dom, bnh->doms, bnh->dom_count);
+    }
     nverts = get_mesh_nverts(dom->mesh);
     for(i = 0; i < bnh->ifvar_count; i++) {
         var = &bnh->ifvars[i];
