@@ -442,11 +442,13 @@ struct obj_entry *get_object_entry(struct benesh_handle *bnh,
     }
 }
 
-void sub_target(struct benesh_handle *bnh, struct wf_target *rule,
-                int subtgt_id, uint64_t *map_vals, struct work_node *sub)
+// must enter with db_mutex held!
+int sub_target(struct benesh_handle *bnh, struct wf_target *rule, int subtgt_id,
+               uint64_t *map_vals, struct work_node *sub)
 {
     struct obj_entry *ent;
     struct obj_sub_node **subn;
+    int sub_added;
 
     APEX_FUNC_TIMER_START(sub_target);
     if(bnh->f_debug) {
@@ -472,19 +474,27 @@ void sub_target(struct benesh_handle *bnh, struct wf_target *rule,
     }
 
     ent = get_object_entry(bnh, rule, subtgt_id, map_vals, 1);
-    subn = &ent->subs;
-    while(*subn) {
-        subn = &(*subn)->next;
-    }
+    if(ent->realized) {
+        if(bnh->f_debug) {
+            DEBUG_OUT("");
+            print_object_nl(stderr, rule, map_vals);
+            fprintf(stderr, " already realized.\n");
+        }
+        sub_added = 0;
+    } else {
+        subn = &ent->subs;
+        while(*subn) {
+            subn = &(*subn)->next;
+        }
 
-    *subn = calloc(1, sizeof(**subn));
-    (*subn)->sub = sub;
-    sub->deps++;
-    ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
+        *subn = calloc(1, sizeof(**subn));
+        (*subn)->sub = sub;
+        sub->deps++;
+        sub_added = 1;
+    }
     APEX_TIMER_STOP(0);
+
+    return (sub_added);
 }
 
 int object_realized(struct benesh_handle *bnh, struct wf_target *rule,
@@ -733,8 +743,6 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
                         "should go in the work queue immediately.\n");
                     benesh_make_active(bnh, chain);
                 } else {
-                    ABT_mutex_unlock(bnh->db_mutex);
-                    // i == 0 means object initialization
                     if(bnh->f_debug) {
                         if(i) {
                             DEBUG_OUT("Subscribe the new chain to target %li, "
@@ -746,7 +754,9 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
                                       tgt - bnh->tgts);
                         }
                     }
+                    // i == 0 means object initialization
                     sub_target(bnh, tgt, (i ? i : -1), map_vals, chain);
+                    ABT_mutex_unlock(bnh->db_mutex);
                 }
                 wnodep = &chain->link;
                 wnode = chain;
@@ -814,7 +824,8 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
     struct pq_obj **dep_tgts = NULL;
     struct work_node *obj_work_init, *obj_work_fini;
     uint64_t *map_vals = NULL, *dep_map_vals;
-    int realized, dep_met;
+    int realized;
+    int dep_remain = 0;
     int i;
 
     APEX_FUNC_TIMER_START(schedule_target);
@@ -841,8 +852,11 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
         // pare this down later - requires some configuration inspection
         obj_work_init->announce = 0;
         dep_tgts = malloc(sizeof(*dep_tgts) * tgt_rule->ndep);
-        dep_met = 1;
-        DEBUG_OUT("checking dependencies\n");
+        dep_remain = 0;
+        if(bnh->f_debug) {
+            DEBUG_OUT("checking dependencies for ");
+            print_pq_obj_nl(stderr, tgt);
+        }
         for(i = 0; i < tgt_rule->ndep; i++) {
             dep_tgts[i] =
                 resolve_obj(bnh, tgt_rule->deps[i], tgt_rule->num_vars,
@@ -857,7 +871,18 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
                 }
                 dep_tgt_rule =
                     find_target_rule(bnh, dep_tgts[i], &dep_map_vals);
-                sub_target(bnh, dep_tgt_rule, 0, dep_map_vals, obj_work_init);
+                ABT_mutex_lock(bnh->db_mutex);
+                dep_remain += sub_target(bnh, dep_tgt_rule, 0, dep_map_vals,
+                                         obj_work_init);
+                ABT_mutex_unlock(bnh->db_mutex);
+            } else {
+                if(bnh->f_debug) {
+                    DEBUG_OUT("");
+                    print_pq_obj(stderr, dep_tgts[i]);
+                    fprintf(stderr, ", dependency %i of ", i);
+                    print_pq_obj(stderr, tgt);
+                    fprintf(stderr, " already realized\n");
+                }
             }
         }
         if(tgt_rule->num_subrules > 0) {
@@ -871,22 +896,30 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
                 obj_work_fini->var_maps = map_vals;
                 obj_work_fini->announce = 1;
                 obj_work_fini->realize = 1;
+                ABT_mutex_lock(bnh->db_mutex);
                 sub_target(bnh, tgt_rule, tgt_rule->num_subrules, map_vals,
                            obj_work_fini);
+                ABT_mutex_unlock(bnh->db_mutex);
             }
         } else {
             obj_work_init->subrule = 0;
             obj_work_init->realize = 1;
         }
 
-        if(dep_met) {
-#ifdef BDEBUG
-            fprintf(stderr, "all dependencies already met while scheduling ");
-            print_pq_obj(stderr, tgt);
-            fprintf(stderr, "\n");
-#endif /* BDEBUG */
+        if(dep_remain == 0) {
+            if(bnh->f_debug) {
+                DEBUG_OUT("all dependencies already met while scheduling ");
+                print_pq_obj_nl(stderr, tgt);
+            }
             // we already have the work lock
             benesh_make_active(bnh, obj_work_init);
+        }
+    } else {
+        if(bnh->f_debug) {
+            DEBUG_OUT("target ");
+            print_pq_obj(stderr, tgt);
+            fprintf(stderr, " is not realized, but it is pending so no "
+                            "scheduling will take place.\n");
         }
     }
 
