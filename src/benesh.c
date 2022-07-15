@@ -2704,8 +2704,8 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 #endif
         if(local_overlap(bnh, src_dom, dst_dom, NULL, NULL)) {
             overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
-            publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
-                        goff_ub);
+            publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps,
+                        goff_lb, goff_ub);
         }
 #ifdef HAVE_REDEV
     }
