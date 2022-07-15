@@ -2366,8 +2366,8 @@ void publish_var(struct benesh_handle *bnh, struct wf_var *var,
     fprintf(stderr, "dpaces_put / lb[0] = %" PRIu64 ", ub[0] = %" PRIu64 "\n",
             lb[0], ub[0]);
 #endif /* BDEBUG */
-    dspaces_put(bnh->dsp, ds_var_name, 0, sizeof(double), dom->dim, lb, ub,
-                var->buf);
+    dspaces_put_local(bnh->dsp, ds_var_name, 0, sizeof(double), dom->dim, lb,
+                      ub, var->buf);
     free(lb);
     free(ub);
     APEX_TIMER_STOP(0);
