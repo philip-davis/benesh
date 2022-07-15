@@ -1,32 +1,30 @@
-#include<mpi.h>
+#include <mpi.h>
 
-#include<inttypes.h>
-#include<math.h>
-#include<stdio.h>
-#include<stdint.h>
-#include<stdlib.h>
-#include<string.h>
-#include<sys/time.h>
+#include <inttypes.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
 #ifdef HAVE_ADIOS2
-#include<adios2_c.h>
+#include <adios2_c.h>
 #endif
 
-
 #ifdef USE_APEX
-#include<apex.h>
-#define APEX_FUNC_TIMER_START(fn) \
+#include <apex.h>
+#define APEX_FUNC_TIMER_START(fn)                                              \
     apex_profiler_handle profiler0 = apex_start(APEX_FUNCTION_ADDRESS, &fn);
-#define APEX_NAME_TIMER_START(num, name) \
+#define APEX_NAME_TIMER_START(num, name)                                       \
     apex_profiler_handle profiler##num = apex_start(APEX_NAME_STRING, name);
-#define APEX_TIMER_STOP(num) \
-    apex_stop(profiler##num);
+#define APEX_TIMER_STOP(num) apex_stop(profiler##num);
 #else
 #define APEX_TIMER_STOP(num) (void)0
 #define APEX_FUNC_TIMER_START(fn) (void)0
 #define APEX_NAME_TIMER_START(num, name) (void)0
 #endif
 
-#include<dspaces.h>
+#include <dspaces.h>
 
 #include "heat.h"
 
@@ -61,10 +59,13 @@ struct couple_map {
 
 double get_elapsed_sec(struct timeval *start, struct timeval *stop)
 {
-    return((stop->tv_sec - start->tv_sec) + (double)(stop->tv_usec - start->tv_usec) / 1000000.0);
+    return ((stop->tv_sec - start->tv_sec) +
+            (double)(stop->tv_usec - start->tv_usec) / 1000000.0);
 }
 
-struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct domain *peer_dom, int isLeft, comm_t comm_type)
+struct couple_map *init_couple_map(struct var *u, struct domain *dom,
+                                   struct domain *peer_dom, int isLeft,
+                                   comm_t comm_type)
 {
     double gol_yl;
     double lol_xl, lol_xh, lol_yl, lol_yh;
@@ -87,13 +88,14 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
     l_yl = dom->yl + h_y * u->y_off;
     l_yh = l_yl + h_y * (u->ydim - 1);
 
-    if(l_xh < peer_dom->xl || l_xl >= peer_dom->xh || l_yh < peer_dom->yl || l_yl > peer_dom->yh) {
+    if(l_xh < peer_dom->xl || l_xl >= peer_dom->xh || l_yh < peer_dom->yl ||
+       l_yl > peer_dom->yh) {
         coupling = 0;
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_split(MPI_COMM_WORLD, coupling, rank, &couple_comm); 
+    MPI_Comm_split(MPI_COMM_WORLD, coupling, rank, &couple_comm);
     if(!coupling) {
-        return(NULL);
+        return (NULL);
     }
     cmap = calloc(1, sizeof(*cmap));
     MPI_Comm_rank(couple_comm, &cmap->couple_rank);
@@ -120,8 +122,10 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
 
     ol_size_y = (cmap->l_ub[1] - cmap->l_lb[1]) + 1;
     ol_size_x = (cmap->l_ub[0] - cmap->l_lb[0]) + 1;
-    l_dims[0] = ol_size_x; l_dims[1] = ol_size_y;
-    len =  ol_size_y * sizeof(*cmap->buf) + ol_size_x * ol_size_y * sizeof(**cmap->buf);
+    l_dims[0] = ol_size_x;
+    l_dims[1] = ol_size_y;
+    len = ol_size_y * sizeof(*cmap->buf) +
+          ol_size_x * ol_size_y * sizeof(**cmap->buf);
     cmap->buf = malloc(len);
     cmap->buf_raw = (double *)&cmap->buf[ol_size_y];
     for(i = 0; i < ol_size_y; i++) {
@@ -177,7 +181,8 @@ void read_peer(struct var *u, struct couple_map *cmap, int ts)
         if(astat != adios2_step_status_ok) {
             fprintf(stderr, "ERROR: adios2_begin_step failed with %i\n", astat);
         }
-        in_var = adios2_inquire_variable(cmap->io_heat_in, cmap->isLeft ? "ur2l" : "ul2r");
+        in_var = adios2_inquire_variable(cmap->io_heat_in,
+                                         cmap->isLeft ? "ur2l" : "ul2r");
         if(!in_var) {
             fprintf(stderr, "ERROR: no variable returned.\n");
             adios2_variable **all_vars;
@@ -195,19 +200,21 @@ void read_peer(struct var *u, struct couple_map *cmap, int ts)
         l_dims[1] = (cmap->g_ub[1] - cmap->g_lb[1]) + 1;
         l_offset[0] = cmap->g_lb[0];
         l_offset[1] = cmap->g_lb[1];
-        adios2_set_selection(in_var, 2, l_offset, l_dims); 
+        adios2_set_selection(in_var, 2, l_offset, l_dims);
         adios2_get(cmap->eng_read, in_var, cmap->buf_raw, adios2_mode_deferred);
         adios2_end_step(cmap->eng_read);
 #endif
     } else {
-        dspaces_get(cmap->dsp, cmap->peer_var, ts, sizeof(double), 2, cmap->g_lb, cmap->g_ub, cmap->buf_raw, -1);
+        dspaces_get(cmap->dsp, cmap->peer_var, ts, sizeof(double), 2,
+                    cmap->g_lb, cmap->g_ub, cmap->buf_raw, -1);
     }
     for(i = 0; i <= cmap->l_ub[1] - cmap->l_lb[1]; i++) {
         for(j = 0; j <= cmap->l_ub[0] - cmap->l_lb[0]; j++) {
             frac = (h_x * (cmap->g_lb[0] + j)) / (cmap->xh - cmap->xl);
             left = u->data[cmap->l_lb[1] + i][cmap->l_lb[0] + j];
             right = cmap->buf[i][j];
-            u->data[cmap->l_lb[1] + i][cmap->l_lb[0] + j] = left * (1 - frac) + right * frac;
+            u->data[cmap->l_lb[1] + i][cmap->l_lb[0] + j] =
+                left * (1 - frac) + right * frac;
         }
     }
     APEX_TIMER_STOP(0);
@@ -228,18 +235,23 @@ void write_stage(struct var *u, struct couple_map *cmap, int ts)
 #ifdef HAVE_ADIOS2
         adios2_step_status astat;
         adios2_begin_step(cmap->eng_write, adios2_step_mode_append, 60, &astat);
-        adios2_put(cmap->eng_write, cmap->out_var, cmap->buf_raw, adios2_mode_deferred);
+        adios2_put(cmap->eng_write, cmap->out_var, cmap->buf_raw,
+                   adios2_mode_deferred);
         adios2_end_step(cmap->eng_write);
 #endif
     } else {
-        dspaces_put_local(cmap->dsp, cmap->stage_var, ts, sizeof(double), 2, cmap->g_lb, cmap->g_ub, cmap->buf_raw);
+        dspaces_put_local(cmap->dsp, cmap->stage_var, ts, sizeof(double), 2,
+                          cmap->g_lb, cmap->g_ub, cmap->buf_raw);
     }
     APEX_TIMER_STOP(0);
 }
 
 void print_usage(char *name)
 {
-    fprintf(stderr, "Usage: %s <x ranks> <y ranks> <lb x> <lb y> <ub x> <ub y> <x grid pts> <y grid pts> <adios|dspaces>\n", name);
+    fprintf(stderr,
+            "Usage: %s <x ranks> <y ranks> <lb x> <lb y> <ub x> <ub y> <x grid "
+            "pts> <y grid pts> <adios|dspaces>\n",
+            name);
 }
 
 int main(int argc, char **argv)
@@ -262,8 +274,8 @@ int main(int argc, char **argv)
 
     if(argc != 12) {
         print_usage(argv[0]);
-        return(1);
-    } 
+        return (1);
+    }
 
     MPI_Init(NULL, NULL);
 
@@ -274,7 +286,7 @@ int main(int argc, char **argv)
     apex_init("adhoc heateq2d", rank, size);
 #endif
 
-    //domain setup
+    // domain setup
     xranks = atoi(argv[1]);
     yranks = atoi(argv[2]);
     x0 = atof(argv[3]);
@@ -288,20 +300,22 @@ int main(int argc, char **argv)
     comm_type_arg = argv[11];
     if(xranks * yranks != size) {
         fprintf(stderr, "should be %i ranks\n", xranks * yranks);
-        return(1);
+        return (1);
     }
     if(strcmp(comm_type_arg, "adios") == 0) {
 #ifdef HAVE_ADIOS2
         comm_type = COMM_ADIOS;
 #else
-        fprintf(stderr, "ERROR: selected adios transport, but compiled without adios support.\n");
-        return(1);
+        fprintf(stderr, "ERROR: selected adios transport, but compiled without "
+                        "adios support.\n");
+        return (1);
 #endif
     } else if(strcmp(comm_type_arg, "dspaces") == 0) {
         comm_type = COMM_DSPACES;
     } else {
-        fprintf(stderr, "Unknown communication type! Should be adios or dspaces.\n");
-        return(1);
+        fprintf(stderr,
+                "Unknown communication type! Should be adios or dspaces.\n");
+        return (1);
     }
     xdim = xgrdim / xranks;
     ydim = ygrdim / yranks;
@@ -310,7 +324,7 @@ int main(int argc, char **argv)
     gettimeofday(&start, NULL);
     APEX_NAME_TIMER_START(1, "init phase");
     varU = new_var(xdim, ydim, xgrdim, ygrdim, xdim * xrank, ydim * yrank, 1);
-    varDU = new_var(xdim, ydim, xgrdim, ygrdim, xdim * xrank, ydim * yrank, 0); 
+    varDU = new_var(xdim, ydim, xgrdim, ygrdim, xdim * xrank, ydim * yrank, 0);
     pdim.rank = rank;
     pdim.xrank = xrank;
     pdim.xranks = xranks;
@@ -328,7 +342,8 @@ int main(int argc, char **argv)
     APEX_TIMER_STOP(2);
     init_var(varU, &dom);
 
-    cmap = init_couple_map(varU, &dom, &peer_dom, dom.xl < peer_dom.xl, comm_type);
+    cmap =
+        init_couple_map(varU, &dom, &peer_dom, dom.xl < peer_dom.xl, comm_type);
     APEX_TIMER_STOP(1);
 
     gettimeofday(&stop, NULL);
@@ -339,12 +354,13 @@ int main(int argc, char **argv)
 
     if(rank == 0) {
         tavg /= size;
-	    printf("init time, %lf, %lf, %lf\n", tavg, tmax, tmin);
-        //printf("compute time: %lf s avg, %lf s max, %lf s min\n", tavg, tmax, tmin);
+        printf("init time, %lf, %lf, %lf\n", tavg, tmax, tmin);
+        // printf("compute time: %lf s avg, %lf s max, %lf s min\n", tavg, tmax,
+        // tmin);
     }
 
     dt = 0.00000000001;
-    
+
     maxts = 4;
 
     double norm_part, norm_sum, du_norm;
@@ -354,32 +370,42 @@ int main(int argc, char **argv)
     APEX_NAME_TIMER_START(4, "compute phase");
     for(ts = 1; ts <= maxts; ts++) {
         if(cmap) {
- #ifdef HAVE_ADIOS2
+#ifdef HAVE_ADIOS2
             if(cmap->comm_type == COMM_ADIOS && ts == 1) {
-                cmap->eng_write = adios2_open(cmap->io_heat_out, (dom.xl < peer_dom.xl) ? "l2r.bp" : "r2l.bp", adios2_mode_write);
+                if(dom.xl < peer_dom.xl) {
+                    cmap->eng_write = adios2_open(cmap->io_heat_out, "l2r.bp",
+                                                  adios2_mode_write);
+                    cmap->eng_read = adios2_open(cmap->io_heat_in, "r2l.bp",
+                                                 adios2_mode_read);
+                } else {
+                    cmap->eng_read = adios2_open(cmap->io_heat_in, "l2r.bp",
+                                                 adios2_mode_read);
+                    cmap->eng_write = adios2_open(cmap->io_heat_out, "r2l.bp",
+                                                  adios2_mode_write);
+                }
                 if(!cmap->eng_write) {
                     fprintf(stderr, "ERROR: failed to open write engine.\n");
                 }
-                cmap->eng_read = adios2_open(cmap->io_heat_in, "r2l.bp", adios2_mode_read);
                 if(!cmap->eng_read) {
                     fprintf(stderr, "ERROR: failed to open read engine.\n");
                 }
             }
- #endif
+#endif
             write_stage(varU, cmap, ts);
             read_peer(varU, cmap, ts);
         }
         MPI_Barrier(MPI_COMM_WORLD);
-        fill_ghosts(varU, &pdim);    
+        fill_ghosts(varU, &pdim);
         euler_solve(varU, varDU, &dom);
         advance(varU, varDU, dt);
         norm_part = get_l2_norm_sq(varDU);
         norm_sum = 0;
-        MPI_Reduce(&norm_part, &norm_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&norm_part, &norm_sum, 1, MPI_DOUBLE, MPI_SUM, 0,
+                   MPI_COMM_WORLD);
         du_norm = sqrt(norm_sum);
         if(rank == 0) {
             fprintf(stderr, "timestep %i: l2 norm of du is %lf\n", ts, du_norm);
-        }        
+        }
     }
     APEX_TIMER_STOP(4);
     gettimeofday(&stop, NULL);
@@ -391,12 +417,12 @@ int main(int argc, char **argv)
     if(rank == 0) {
         tavg /= size;
         fprintf(stderr, "compute time, %lf, %lf, %lf\n", tavg, tmax, tmin);
-        //printf("compute time: %lf s avg, %lf s max, %lf s min\n", tavg, tmax, tmin);
+        // printf("compute time: %lf s avg, %lf s max, %lf s min\n", tavg, tmax,
+        // tmin);
     }
 
-
     if(cmap) {
-        if(cmap->comm_type == COMM_DSPACES) { 
+        if(cmap->comm_type == COMM_DSPACES) {
             if(cmap->couple_rank == 0) {
                 dspaces_kill(cmap->dsp);
             }
@@ -407,10 +433,9 @@ int main(int argc, char **argv)
             adios2_close(cmap->eng_read);
             adios2_close(cmap->eng_write);
             adios2_finalize(cmap->ad);
-#endif        
+#endif
         }
     }
-
 
 #ifdef USE_APEX
     apex_finalize();
@@ -418,6 +443,5 @@ int main(int argc, char **argv)
 
     MPI_Finalize();
 
-    return(0);
- 
+    return (0);
 }
