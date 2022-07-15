@@ -138,22 +138,26 @@ struct couple_map *init_couple_map(struct var *u, struct domain *dom, struct dom
     cmap->isLeft = isLeft;
 
     cmap->comm_type = comm_type;
-    if(comm_type == COMM_DSPACES) { 
+    if(comm_type == COMM_DSPACES) {
         APEX_NAME_TIMER_START(3, "dspaces init");
         dspaces_init_mpi(cmap->couple_comm, &cmap->dsp);
         APEX_TIMER_STOP(3);
     } else {
-#ifdef HAVE_ADIOS2 
+#ifdef HAVE_ADIOS2
         APEX_NAME_TIMER_START(3, "adios init");
         cmap->ad = adios2_init_config_mpi("adios2.xml", cmap->couple_comm);
-        cmap->io_heat_in = adios2_declare_io(cmap->ad, isLeft ? "heat_r2l" : "heat_l2r");
-        cmap->io_heat_out = adios2_declare_io(cmap->ad, isLeft ? "heat_l2r" : "heat_r2l");
-        cmap->out_var = adios2_define_variable(cmap->io_heat_out, isLeft ? "ul2r" : "ur2l", adios2_type_double, 2, g_dims, cmap->g_lb, l_dims, adios2_constant_dims_true);
+        cmap->io_heat_in =
+            adios2_declare_io(cmap->ad, isLeft ? "heat_r2l" : "heat_l2r");
+        cmap->io_heat_out =
+            adios2_declare_io(cmap->ad, isLeft ? "heat_l2r" : "heat_r2l");
+        cmap->out_var = adios2_define_variable(
+            cmap->io_heat_out, isLeft ? "ul2r" : "ur2l", adios2_type_double, 2,
+            g_dims, cmap->g_lb, l_dims, adios2_constant_dims_true);
         APEX_TIMER_STOP(3);
 #endif
     }
     APEX_TIMER_STOP(0);
-    return(cmap);
+    return (cmap);
 }
 
 void read_peer(struct var *u, struct couple_map *cmap, int ts)
