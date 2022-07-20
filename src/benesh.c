@@ -42,16 +42,7 @@
         if(bnh->f_debug) {                                                     \
             ABT_unit_id tid;                                                   \
             ABT_thread_self_id(&tid);                                          \
-            char *dbgstr;                                                      \
-            int dbglen;                                                        \
-            dbglen = snprintf(                                                 \
-                dbgstr, 0, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): %s",   \
-                bnh->rank, tid, __FILE__, __LINE__, __func__, dstr);           \
-            dbgstr = malloc(dbglen + 1);                                       \
-            snprintf(dbgstr, dbglen + 1,                                       \
-                     "Rank %i: TID: %" PRIu64 " %s, line %i (%s): %s",         \
-                     bnh->rank, tid, __FILE__, __LINE__, __func__, dstr);      \
-            fprintf(stderr, dbgstr __VA_OPT__(, ) __VA_ARGS__);                \
+            fprintf(stderr, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): " dstr, bnh->rank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
         }                                                                      \
     } while(0);
 
@@ -2974,7 +2965,7 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
                     if(bnh->f_debug) {
                         DEBUG_OUT("subscriber ");
                         print_work_node(stderr, bnh, sub);
-                        fprintf(stderr, "still has %i deps remaining.\n");
+                        fprintf(stderr, "still has %i deps remaining.\n", sub->deps);
                     }
                     continue;
                 }
