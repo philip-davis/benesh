@@ -3170,11 +3170,13 @@ int find_rule(struct benesh_handle *bnh, const char *tpname, uint64_t **values)
     tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
     do {
         rule = &tph->rules[rule_id];
-        if(rule->rule && rule->source && match_rule(rule, tk_tpoint, tkcnt, values)) {
+        if(rule->rule && rule->source &&
+           match_rule(rule, tk_tpoint, tkcnt, values)) {
             DEBUG_OUT(" matched rule %i, with mappings: \n", rule_id);
             if(bnh->f_debug) {
                 for(i = 0; i < rule->nmappings; i++) {
-                     DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i], (*values)[i]);
+                    DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i],
+                              (*values)[i]);
                 }
             }
             found = 1;
@@ -3190,7 +3192,7 @@ int find_rule(struct benesh_handle *bnh, const char *tpname, uint64_t **values)
 
     APEX_TIMER_STOP(0);
 
-    return(found ? rule_id : -1);
+    return (found ? rule_id : -1);
 }
 
 void announce_tpoint(struct benesh_handle *bnh, int rule_id, uint64_t *values)
@@ -3219,7 +3221,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 
     rule_id = find_rule(bnh, tpname, &values);
     if(rule_id == -1) {
-         fprintf(stderr,
+        fprintf(stderr,
                 "WARNING: %s tried to signal touchpoint %s, which is not a "
                 "touchpoint for component %s. Ignoring.\n",
                 bnh->name, tpname, bnh->comps[bnh->comp_id].name);
