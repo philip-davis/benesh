@@ -2789,7 +2789,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         */
 
         status = dspaces_check_sub(bnh->dsp, wnode->req, 0, &result);
-        if(status == DSPACES_SUB_RUNNING) {
+        if(status == DSPACES_SUB_TRANSFER || status == DSPACES_SUB_RUNNING) {
             ABT_mutex_lock(bnh->data_mutex);
             ds->waiting = 1;
             ABT_cond_broadcast(bnh->data_cond);
