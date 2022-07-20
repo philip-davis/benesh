@@ -2770,24 +2770,6 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
             return (get_with_redev(bnh, wnode));
         }
 #endif
-        /*
-        APEX_NAME_TIMER_START(1, "data_lock_csa");
-        ABT_mutex_lock(bnh->data_mutex);
-        APEX_TIMER_STOP(1);
-        ds->waiting = 1;
-        ABT_cond_broadcast(bnh->data_cond);
-
-        ABT_mutex_unlock(bnh->data_mutex);
-        DEBUG_OUT("waiting for dspaces_check_sub\n");
-        APEX_NAME_TIMER_START(2, "b_dspaces_check_sub");
-
-        ret = dspaces_check_sub(bnh->dsp, wnode->req, 1, &result) ==
-              DSPACES_SUB_DONE;
-        APEX_TIMER_STOP(2);
-        DEBUG_OUT("dspaces_check_sub finished\n");
-        APEX_TIMER_STOP(0);
-        */
-
         status = dspaces_check_sub(bnh->dsp, wnode->req, 0, &result);
         if(status == DSPACES_SUB_TRANSFER || status == DSPACES_SUB_RUNNING) {
             ABT_mutex_lock(bnh->data_mutex);
@@ -3173,6 +3155,89 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
     return (1);
 }
 
+int find_rule(struct benesh_handle *bnh, const char *tpname, uint64_t **values)
+{
+    struct tpoint_handle *tph = bnh->tph;
+    int rule_id = 0;
+    struct tpoint_rule *rule;
+    char **tk_tpoint;
+    int tkcnt;
+    int found = 0;
+    int i;
+
+    APEX_FUNC_TIMER_START(find_rule);
+
+    tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
+    do {
+        rule = &tph->rules[rule_id];
+        if(rule->rule && rule->source && match_rule(rule, tk_tpoint, tkcnt, values)) {
+            DEBUG_OUT(" matched rule %i, with mappings: \n", rule_id);
+            if(bnh->f_debug) {
+                for(i = 0; i < rule->nmappings; i++) {
+                     DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i], (*values)[i]);
+                }
+            }
+            found = 1;
+            break;
+        }
+        rule_id++;
+    } while(rule->rule);
+
+    for(i = 0; i < tkcnt; i++) {
+        free(tk_tpoint[i]);
+    }
+    free(tk_tpoint);
+
+    APEX_TIMER_STOP(0);
+
+    return(found ? rule_id : -1);
+}
+
+void announce_tpoint(struct benesh_handle *bnh, int rule_id, uint64_t *values)
+{
+    struct tpoint_announce announce;
+
+    APEX_FUNC_TIMER_START(announce_tpoint);
+
+    announce.rule_id = rule_id;
+    announce.comp_id = bnh->comp_id;
+    announce.tp_vars = values;
+    ekt_tell(bnh->ekth, NULL, bnh->tp_type, &announce);
+
+    APEX_TIMER_STOP(0);
+}
+
+void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
+{
+    int rule_id;
+    uint64_t *values;
+    struct tpoint_handle *tph = bnh->tph;
+    struct tpoint_rule *rule;
+
+    DEBUG_OUT("starting touchpoint processing for %s\n", tpname);
+    APEX_FUNC_TIMER_START(benesh_tpoint);
+
+    rule_id = find_rule(bnh, tpname, &values);
+    if(rule_id == -1) {
+         fprintf(stderr,
+                "WARNING: %s tried to signal touchpoint %s, which is not a "
+                "touchpoint for component %s. Ignoring.\n",
+                bnh->name, tpname, bnh->comps[bnh->comp_id].name);
+
+    } else {
+        announce_tpoint(bnh, rule_id, values);
+        DEBUG_OUT("announced touchpoint %s\n", tpname);
+        rule = &tph->rules[rule_id];
+        while(!tpoint_finished(bnh, rule, values)) {
+            benesh_handle_work(bnh);
+        }
+    }
+    APEX_TIMER_STOP(0);
+
+    DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
+}
+
+/*
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 {
     struct tpoint_handle *tph = bnh->tph;
@@ -3192,6 +3257,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
     APEX_NAME_TIMER_START(1, "rule_matching");
     rule_id = 0;
+    //find matching tpoint rule
     do {
         rule = &tph->rules[rule_id];
         if(rule->rule && rule->source &&
@@ -3203,6 +3269,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
                               values[i]);
                 }
             }
+            // announce tpoint rule reached
             announce.rule_id = rule_id;
             announce.comp_id = bnh->comp_id;
             announce.tp_vars = values;
@@ -3232,6 +3299,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 
     APEX_TIMER_STOP(0);
 }
+*/
 
 int benesh_fini(struct benesh_handle *bnh)
 {
