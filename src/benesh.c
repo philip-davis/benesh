@@ -2365,6 +2365,7 @@ void publish_var(struct benesh_handle *bnh, struct wf_var *var,
 }
 
 struct data_sub {
+    struct work_node *wnode;
     struct benesh_handle *bnh;
     struct wf_target *tgt;
     int subrule;
@@ -2374,6 +2375,7 @@ struct data_sub {
     uint64_t *ub;
     double lint, uint;
     int waiting;
+    int dequeued;
 };
 
 // TODO: cache first part...
@@ -2590,6 +2592,7 @@ static void sub_var(struct benesh_handle *bnh, struct work_node *wnode,
     ds->waiting = 0;
 
     wnode->ds = ds;
+    ds->wnode = wnode;
     DEBUG_OUT("subscribing to %s\n", ds_var_name);
     wnode->req = dspaces_sub(bnh->dsp, ds_var_name, 0, sizeof(double), dom->dim,
                              lb, ub, handle_notify, ds);
@@ -2779,7 +2782,10 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
                     "%s.\n",
                     __func__);
             ret = 1;
+        } else if(status == DSPACES_SUB_WAIT) {
+            ret = 2;
         } else {
+            fprintf(stderr, "ERROR: %s: subscription has failed.\n", __func__);
             ret = 0;
         }
         return (ret);
@@ -2863,6 +2869,7 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
 static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct work_node *link;
+    int res;
 
     APEX_FUNC_TIMER_START(handle_work);
     switch(wnode->type) {
@@ -2895,9 +2902,17 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
         break;
     case BNH_WORK_CHAIN:
         for(link = wnode->link; link->next; link = link->next) {
-            if(!handle_work(bnh, link)) {
+            res = handle_work(bhh, link);
+            if(res == 0) {
                 wnode->next = link; // memory leak
                 return (0);
+            } else if(res == 2) {
+                wnode->next = link->next;
+                ABT_mutex_lock(bnh->db_mutex);
+                DEBUG_OUT("work item dequeued - subscribing remaining chain to target %li, subrule %i.\n", link->target - bnh->tgts, link->subrule);
+                sub_target(bnh, link->target, link->subrule, link->map_vals, wnode);  
+                ABT_mutex_unlock(bnh->db_mutex);
+                return(2);
             }
         }
         ABT_mutex_lock(bnh->work_mutex);
@@ -3033,16 +3048,8 @@ void benesh_handle_work(struct benesh_handle *bnh)
         // busy loop
         handled++;
         wnode = deque_work(bnh);
-#ifdef BDEBUG
-        fprintf(stderr, "dequeued ");
-        print_work_node(stderr, bnh, wnode);
-        fprintf(stderr, "\n");
-#endif
         ABT_mutex_unlock(bnh->work_mutex);
         if(!handle_work(bnh, wnode)) {
-#ifdef BDEBUG
-            fprintf(stderr, "requeueing incomplete work\n");
-#endif
             ABT_mutex_lock(bnh->work_mutex);
             benesh_make_active(bnh, wnode);
             ABT_mutex_unlock(bnh->work_mutex);
@@ -3229,70 +3236,6 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 
     DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
 }
-
-/*
-void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
-{
-    struct tpoint_handle *tph = bnh->tph;
-    char **tk_tpoint;
-    int tkcnt;
-    struct tpoint_rule *rule;
-    struct tpoint_announce announce;
-    int rule_id;
-    struct tpoint_rule **rulep = &tph->rules;
-    uint64_t *values;
-    int found = 0;
-    int i;
-
-    DEBUG_OUT("starting touchpoint processing for %s\n", tpname);
-    APEX_FUNC_TIMER_START(benesh_tpoint);
-
-    tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
-    APEX_NAME_TIMER_START(1, "rule_matching");
-    rule_id = 0;
-    //find matching tpoint rule
-    do {
-        rule = &tph->rules[rule_id];
-        if(rule->rule && rule->source &&
-           match_rule(rule, tk_tpoint, tkcnt, &values)) {
-            DEBUG_OUT(" matched rule %i, with mappings: \n", rule_id);
-            if(bnh->f_debug) {
-                for(i = 0; i < rule->nmappings; i++) {
-                    DEBUG_OUT("   %s => %" PRIu64 "\n", rule->map_names[i],
-                              values[i]);
-                }
-            }
-            // announce tpoint rule reached
-            announce.rule_id = rule_id;
-            announce.comp_id = bnh->comp_id;
-            announce.tp_vars = values;
-            APEX_NAME_TIMER_START(2, "ekt_tell_tpoint");
-            ekt_tell(tph->ekth, NULL, bnh->tp_type, &announce);
-            DEBUG_OUT("announced touchpoint %s\n", tpname);
-            APEX_TIMER_STOP(2);
-            found = 1;
-            break;
-        }
-        rule_id++;
-    } while(rule->rule);
-    APEX_TIMER_STOP(1);
-
-    while(!tpoint_finished(bnh, rule, values)) {
-        benesh_handle_work(bnh);
-    }
-
-    DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
-
-    if(!found) {
-        fprintf(stderr,
-                "WARNING: %s tried to signal touchpoint %s, which is not a "
-                "touchpoint for component %s. Ignoring.\n",
-                bnh->name, tpname, bnh->comps[bnh->comp_id].name);
-    }
-
-    APEX_TIMER_STOP(0);
-}
-*/
 
 int benesh_fini(struct benesh_handle *bnh)
 {
