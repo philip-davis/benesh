@@ -42,7 +42,9 @@
         if(bnh->f_debug) {                                                     \
             ABT_unit_id tid;                                                   \
             ABT_thread_self_id(&tid);                                          \
-            fprintf(stderr, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): " dstr, bnh->rank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
+            fprintf(                                                           \
+                stderr, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): " dstr,   \
+                bnh->rank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__);  \
         }                                                                      \
     } while(0);
 
@@ -2464,6 +2466,7 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     uint64_t *llb, *lub;
     double pitch;
     struct obj_entry *ent;
+    int dequeued = 0;
     int i;
 
     APEX_FUNC_TIMER_START(handle_notify);
@@ -2485,9 +2488,13 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
 
     DEBUG_OUT("checking whether we are blocking on these data yet.\n");
     ABT_mutex_lock(bnh->data_mutex);
-    while(!ds->waiting) {
-        DEBUG_OUT("not blocking yet. Waiting...\n");
-        ABT_cond_wait(bnh->data_cond, bnh->data_mutex);
+    if(!ds->dequeued) {
+        while(!ds->waiting) {
+            DEBUG_OUT("not blocking yet. Waiting...\n");
+            ABT_cond_wait(bnh->data_cond, bnh->data_mutex);
+        }
+    } else {
+        dequeued = 1;
     }
     ABT_mutex_unlock(bnh->data_mutex);
 
@@ -2764,9 +2771,9 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
             return (get_with_redev(bnh, wnode));
         }
 #endif
+        ABT_mutex_lock(bnh->data_mutex);
         status = dspaces_check_sub(bnh->dsp, wnode->req, 0, &result);
         if(status == DSPACES_SUB_TRANSFER || status == DSPACES_SUB_RUNNING) {
-            ABT_mutex_lock(bnh->data_mutex);
             ds->waiting = 1;
             ABT_cond_broadcast(bnh->data_cond);
             ABT_mutex_unlock(bnh->data_mutex);
@@ -2777,14 +2784,18 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
             APEX_TIMER_STOP(2)
             DEBUG_OUT("dspaces_check_sub finished\n");
         } else if(status == DSPACES_SUB_DONE) {
+            ABT_mutex_unlock(bnh->data_mutex);
             fprintf(stderr,
                     "WARNING: unexpected completion without running status in "
                     "%s.\n",
                     __func__);
             ret = 1;
         } else if(status == DSPACES_SUB_WAIT) {
+            ds->dequeued = 1;
+            ABT_mutex_unlock(bnh->data_mutex);
             ret = 2;
         } else {
+            ABT_mutex_unlock(bnh->data_mutex);
             fprintf(stderr, "ERROR: %s: subscription has failed.\n", __func__);
             ret = 0;
         }
@@ -2902,17 +2913,20 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
         break;
     case BNH_WORK_CHAIN:
         for(link = wnode->link; link->next; link = link->next) {
-            res = handle_work(bhh, link);
+            res = handle_work(bnh, link);
             if(res == 0) {
                 wnode->next = link; // memory leak
                 return (0);
             } else if(res == 2) {
                 wnode->next = link->next;
                 ABT_mutex_lock(bnh->db_mutex);
-                DEBUG_OUT("work item dequeued - subscribing remaining chain to target %li, subrule %i.\n", link->target - bnh->tgts, link->subrule);
-                sub_target(bnh, link->target, link->subrule, link->map_vals, wnode);  
+                DEBUG_OUT("work item dequeued - subscribing remaining chain to "
+                          "target %li, subrule %i.\n",
+                          link->tgt - bnh->tgts, link->subrule);
+                sub_target(bnh, link->tgt, link->subrule, link->var_maps,
+                           wnode);
                 ABT_mutex_unlock(bnh->db_mutex);
-                return(2);
+                return (2);
             }
         }
         ABT_mutex_lock(bnh->work_mutex);
@@ -2980,7 +2994,8 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
                     if(bnh->f_debug) {
                         DEBUG_OUT("subscriber ");
                         print_work_node(stderr, bnh, sub);
-                        fprintf(stderr, "still has %i deps remaining.\n", sub->deps);
+                        fprintf(stderr, "still has %i deps remaining.\n",
+                                sub->deps);
                     }
                     continue;
                 }
@@ -3030,6 +3045,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
     struct work_node *wnode;
     struct obj_entry *ent;
     int handled = 0;
+    int res;
 
     APEX_FUNC_TIMER_START(benesh_handle_work);
 
@@ -3049,11 +3065,14 @@ void benesh_handle_work(struct benesh_handle *bnh)
         handled++;
         wnode = deque_work(bnh);
         ABT_mutex_unlock(bnh->work_mutex);
-        if(!handle_work(bnh, wnode)) {
+        res = handle_work(bnh, wnode);
+        if(res == 0) {
+            // work was not completed, but should stay queued
             ABT_mutex_lock(bnh->work_mutex);
             benesh_make_active(bnh, wnode);
             ABT_mutex_unlock(bnh->work_mutex);
-        } else {
+        } else if(res == 1) {
+            // work was completed
             switch(wnode->type) {
             case BNH_WORK_OBJ:
                 DEBUG_OUT("cleanup from object completion\n");
@@ -3085,6 +3104,8 @@ void benesh_handle_work(struct benesh_handle *bnh)
             } else {
                 DEBUG_OUT("not announcing work completion.\n")
             }
+        } else {
+            // work is incomplete, but should be dequeued.
         }
         ABT_mutex_lock(bnh->work_mutex);
     }
