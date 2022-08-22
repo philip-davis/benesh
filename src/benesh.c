@@ -5,6 +5,7 @@
 
 #include "benesh.h"
 #include "ihash.h"
+#include "wdmcpl_wrapper.h"
 #include "omegah_wrapper.h"
 #include "redev_wrapper.h"
 #include "xc_config.h"
@@ -68,6 +69,8 @@ struct wf_domain {
     uint32_t *rdv_dest;
     uint32_t *rdv_offset;
     struct rdv_ptn *rptn;
+    struct cpl_hndl *cph;
+    struct cpl_gid_field *field;
     size_t rdv_count;
     int type;
     int comm_type;
@@ -3407,6 +3410,31 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     (*offset)[pos] = pts;
 }
 
+int cpl_add_fields(struct benesh_handle *bnh, struct wf_domain *dom,
+                  struct wf_domain *dom_list, int dom_count, int pos)
+{
+    int i;
+    int count = 0, count_once;
+
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].comm_type == BNH_COMM_RDV_CLI &&
+           same_root_domain(dom, &dom_list[i])) {
+            DEBUG_OUT("adding field %s for app %s\n", "gid", dom->name);
+            dom_list[i].field = create_gid_field(dom_list[i].name, "gid", dom->cph, dom->mesh, NULL);
+            pos++;
+            count++;
+        }
+        if(dom_list[i].subdom_count) {
+            count_once = cpl_add_fields(bnh, dom, dom_list[i].subdoms,
+                                       dom_list[i].subdom_count, pos);
+            count += count_once;
+            pos += count_once;
+        }
+    }
+
+    return (count);
+}
+
 int allocate_rdvs(struct benesh_handle *bnh, struct wf_domain *dom,
                   struct wf_domain *dom_list, int dom_count, int pos)
 {
@@ -3512,76 +3540,27 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
     dom->mesh = new_oh_mesh(grid_file);
     dom->rptn = create_oh_partition(dom->mesh, cpn_file);
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
-        DEBUG_OUT("rdv client connecting to server on domain '%s'\n",
-                  dom->full_name);
-        //dom->rdv = malloc(sizeof(*dom->rdv));
-        dom->rdv =
-            new_rdv_comm_ptn(&bnh->mycomm, dom->full_name, 0, dom->rptn);
-        DEBUG_OUT("rdv client comm is %p\n", (void *)dom->rdv);
+        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 0); 
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
-        /*
-        for(i = 0; i < bnh->dom_count; i++) {
-            fprintf(stderr, "comparing root domain of %s and %s\n",
-        dom->full_name, bnh->doms[i].full_name); if(bnh->doms[i].comm_type ==
-        BNH_COMM_RDV_CLI && same_root_domain(dom, &bnh->doms[i])) {
-                dom_cli_count++;
-            }
-        }
-        */
-        dom_cli_count =
-            find_client_domain_count(bnh, dom, bnh->doms, bnh->dom_count);
-        DEBUG_OUT("rdv server connecting to %i clients\n", dom_cli_count);
-        //dom->rdv = malloc(sizeof(*dom->rdv) * dom_cli_count);
-        /*
-        for(i = 0; i < bnh->dom_count; i++) {
-            if(bnh->doms[i].comm_type == BNH_COMM_RDV_CLI &&
-        same_root_domain(dom, &bnh->doms[i])) { DEBUG_OUT("rdv server
-        establishing communication on domain '%s'\n", bnh->doms[i].full_name);
-                dom->rdv[pos++] = new_rdv_comm_ptn(&bnh->mycomm,
-        bnh->doms[i].full_name, 1, dom->rptn);
-            }
-        }
-        */
-        allocate_rdvs(bnh, dom, bnh->doms, bnh->dom_count, 0);
+        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 1);
     } else {
         fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
         return (-1);
     }
 
-    /*
-    for(i = 0; i < bnh->dom_count; i++) {
-        if(dom->comm_type == BNH_COMM_RDV_SRV &&
-           same_root_domain(dom, &bnh->doms[i])) {
-            if(srv_found) {
-                fprintf(
-                    stderr,
-                    "WARNING: multiple rdv servers for root domain of '%s'\n",
-                    dom->full_name);
-            } else {
-                DEBUG_OUT("Setting overlap for '%s 'on class %i to %i.\n",
-                          dom->full_name, bnh->doms[i].class_range[0],
-                          bnh->doms[i].class_range[1]);
-                mark_mesh_overlap(dom->mesh, bnh->doms[i].class_range[0],
-                                  bnh->doms[i].class_range[1]);
-                srv_found = 1;
-            }
-        }
-    }
-    */
     srv_dom = find_server_dom(bnh, dom, bnh->doms, bnh->dom_count);
     if(!srv_dom) {
         fprintf(stderr,
                 "ERROR: no rdv server for domain '%s', which has client(s).\n",
                 dom->full_name);
     }
-    mark_mesh_overlap(dom->mesh, srv_dom->class_range[0], srv_dom->class_range[1]);
+    mark_cpl_overlap(dom->cph, dom->mesh, dom->rptn, srv_dom->class_range[0], srv_dom->class_range[1]);
 
-    get_omegah_layout(dom->mesh, dom->rptn, &dom->rdv_dest, &dom->rdv_offset,
-                      &dom->rdv_dst_count);
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
-        rdv_layout(dom->rdv, dom->rdv_dst_count, dom->rdv_dest, dom->rdv_offset);
+        DEBUG_OUT("creating field %s for app %s.\n", "gid", dom->name);
+        dom->field = create_gid_field(dom->name, "gid", dom->cph, dom->mesh, NULL);
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
-        update_layouts(bnh, dom, bnh->doms, bnh->dom_count);
+        cpl_add_fields(bnh, dom, dom->subdoms, dom->subdom_count, 0);
     }
     nverts = get_mesh_nverts(dom->mesh);
     for(i = 0; i < bnh->ifvar_count; i++) {

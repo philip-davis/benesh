@@ -11,6 +11,7 @@ set (benesh-pkg "share/cmake/dspaces")
 
 add_library(benesh 
             benesh.c
+            wdmcpl_wrapper.cpp
             redev_wrapper.cpp
             omegah_wrapper.cpp
             test_support.cpp
@@ -26,6 +27,7 @@ target_link_libraries(benesh PRIVATE
                       dspaces::dspaces
                       ekt
                       argobots
+                      wdmcpl::wdmcpl
                       redev::redev
                       adios2::adios2
                       Omega_h::omega_h)

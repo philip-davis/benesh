@@ -32,40 +32,40 @@ extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
     static auto ranks = redev::LOs(rdvRanks);
     static auto cuts = redev::Reals(rdvRanks);
     static auto ptn = redev::RCBPtn(dim, ranks, cuts);
-    static redev::Redev rdv(*comm, ptn, isRdv);
+    static redev::Redev rdv(*comm, ptn, (isRdv ? redev::ProcessType::Server : redev::ProcessType::Client));
     // rdv.Setup();
     static std::string name = "rendezvous";
     // return (struct rdv_comm *)(new redev::AdiosComm<redev::LO>(
     //    *comm, ranks.size(), rdv.getToEngine(), rdv.getIO(), name));
     adios2::Params params{{"Streaming", "On"}, {"OpenTimeoutSecs", "60"}};
-    return ((struct rdv_comm *)(new redev::CommPair<redev::LO>(
-        rdv.CreateAdiosClient<redev::LO>(name, params, false))));
+    return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::LO>(
+        rdv.CreateAdiosClient<redev::LO>(name, params, redev::TransportType::BP4))));
 }
 
 extern "C" struct rdv_comm *new_rdv_comm_ptn(MPI_Comm *comm, const char *name,
                                              int isRdv, struct rdv_ptn *rptn)
 {
     auto ptn = (redev::ClassPtn *)rptn;
-    static redev::Redev rdv(MPI_COMM_WORLD, *ptn, isRdv); //TODO
+    static redev::Redev rdv(MPI_COMM_WORLD, *ptn, (isRdv ? redev::ProcessType::Server : redev::ProcessType::Client)); //TODO
     adios2::Params params{{"Streaming", "On"}, {"OpenTimeoutSecs", "600"}};
-    return ((struct rdv_comm *)(new redev::CommPair<redev::GO>(
-        rdv.CreateAdiosClient<redev::GO>(std::string(name), params, false))));
+    return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::GO>(
+        rdv.CreateAdiosClient<redev::GO>(std::string(name), params, redev::TransportType::BP4))));
 }
 
 extern "C" void rdv_layout(struct rdv_comm *comm, int count, uint32_t *dest,
                            uint32_t *offset)
 {
-    redev::CommPair<redev::GO> *commPair = (redev::CommPair<redev::GO> *)comm;
+    redev::BidirectionalComm<redev::GO> *commPair = (redev::BidirectionalComm<redev::GO> *)comm;
     redev::LOs destv(dest, dest + count);
     redev::LOs offsetv(offset, offset + count + 1);
-    commPair->c2s.SetOutMessageLayout(destv, offsetv);
+    commPair->SetOutMessageLayout(destv, offsetv);
 }
 
 extern "C" void rdv_send(struct rdv_comm *comm, int rank, void *buffer)
 {
-    redev::CommPair<redev::GO> *commPair = (redev::CommPair<redev::GO> *)comm;
+    redev::BidirectionalComm<redev::GO> *commPair = (redev::BidirectionalComm<redev::GO> *)comm;
     auto start = std::chrono::steady_clock::now();
-    commPair->c2s.Send((redev::GO *)buffer);
+    commPair->Send((redev::GO *)buffer);
     auto end = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
 
@@ -79,15 +79,14 @@ extern "C" void rdv_send(struct rdv_comm *comm, int rank, void *buffer)
 
 }
 
-extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer,
-                         size_t *buflen)
+extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer, size_t *buflen)
 {
-    redev::CommPair<redev::GO> *commPair = (redev::CommPair<redev::GO> *)comm;
+    redev::BidirectionalComm<redev::GO> *commPair = (redev::BidirectionalComm<redev::GO> *)comm;
     redev::GOs msgs;
 
     std::stringstream ss;
     auto start = std::chrono::steady_clock::now();
-    msgs = commPair->c2s.Recv();
+    msgs = commPair->Recv();
     *buflen = msgs.size();
     *buffer = malloc(msgs.size() * sizeof(*msgs.data()));
     memcpy(*buffer, msgs.data(), msgs.size() * sizeof(*msgs.data()));
