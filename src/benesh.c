@@ -882,6 +882,7 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
             if(schedule_subrules(bnh, tgt_rule, map_vals, obj_work_init) ==
                bnh->comp_id) {
                 // to send the completion
+                DEBUG_OUT("I will announced finalization of target %li\n", tgt_rule - bnh->tgts);
                 obj_work_fini = calloc(1, sizeof(*obj_work_fini));
                 obj_work_fini->type = BNH_WORK_OBJ;
                 obj_work_fini->tgt = tgt_rule;
@@ -2494,6 +2495,7 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
             ABT_cond_wait(bnh->data_cond, bnh->data_mutex);
         }
     } else {
+        DEBUG_OUT("sub has been dequeud already. Proceeding.\n");
         dequeued = 1;
     }
     ABT_mutex_unlock(bnh->data_mutex);
@@ -2504,8 +2506,9 @@ int handle_notify(dspaces_client_t dsp, struct dspaces_req *req,
     matrix_copy_interp(var->buf, dom->dim, llb, lub, req->buf, ds->lb, ds->ub,
                        sizeof(double), ds->lint, ds->uint);
 
+    wnode.type = BNH_WORK_RULE; 
     wnode.tgt = ds->tgt;
-    wnode.subrule = ds->subrule - 1; // the sub
+    wnode.subrule = ds->subrule; // the sub
     wnode.var_maps = ds->var_maps;
 
     DEBUG_OUT("activating work object\n");
@@ -3106,6 +3109,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
             }
         } else {
             // work is incomplete, but should be dequeued.
+            DEBUG_OUT("work was dequeued.\n");
         }
         ABT_mutex_lock(bnh->work_mutex);
     }
