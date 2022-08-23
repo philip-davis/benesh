@@ -36,7 +36,7 @@ struct cpl_gid_field {
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server)
 {
     auto mesh = (Omega_h::Mesh *)meshp;
-    auto ptn = (redev::Partition *)ptnp;
+    auto ptn = (redev::ClassPtn *)ptnp;
     struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
     cpl_h->cpl = new wdmcpl::Coupler(wfname, (server ? wdmcpl::ProcessType::Server : wdmcpl::ProcessType::Client), MPI_COMM_WORLD, *ptn);
     cpl_h->server = (bool)server;
@@ -58,6 +58,7 @@ extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const ch
     auto &app = cpl_h->AddApplication(app_name);
     auto mesh = (Omega_h::Mesh *)meshp;
     struct cpl_gid_field *field = (struct cpl_gid_field *)malloc(sizeof(*field));
+    field->gid_field = std::vector<wdmcpl::GO>();
 
     if(cphp->server) {
         field->comm = &app.AddField<wdmcpl::GO>(field_name, OmegaHGids{*mesh, *cphp->srv_overlap_h}, OmegaHReversePartition{*mesh}, SerializeServer{field->gid_field}, DeserializeServer{field->gid_field});

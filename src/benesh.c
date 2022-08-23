@@ -2701,8 +2701,9 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
                   (void *)dst_comp->rdv, src_dom->l_grid_pts[0],
                   src_var->buf_size);
         */
-        DEBUG_OUT("sending %li bytes using rendezvous %p\n", src_var->buf_size, src_dom->rdv);
-        rdv_send(src_dom->rdv, bnh->rank, src_var->buf);
+        DEBUG_OUT("sending %li bytes using cpl %p\n", src_var->buf_size, src_dom->field);
+        //rdv_send(src_dom->rdv, bnh->rank, src_var->buf);
+        cpl_send_field(src_dom->field);
         DEBUG_OUT("sent\n");
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
@@ -2754,13 +2755,15 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
 
     size_t num_elem;
 
-    DEBUG_OUT("receiving from comp %i with rendezvous %p\n", prule->comp_id,
-              (void *)src_comp->rdv);
+    DEBUG_OUT("receiving from comp %i with cpl %p\n", prule->comp_id,
+              (void *)src_dom->field);
 
     if(dst_var->buf) {
         free(dst_var->buf);
+        dst_var->buf = NULL;
     }
-    rdv_recv(src_dom->rdv, bnh->rank, &dst_var->buf, &num_elem);
+    cpl_recv_field(src_dom->field, (double **)&dst_var->buf, &num_elem);
+    //rdv_recv(src_dom->rdv, bnh->rank, &dst_var->buf, &num_elem);
     dst_var->buf_size = num_elem;
     if(dst_var->type == BNH_TYPE_INT) {
         dst_var->buf_size *= 4;
@@ -3416,11 +3419,15 @@ int cpl_add_fields(struct benesh_handle *bnh, struct wf_domain *dom,
     int i;
     int count = 0, count_once;
 
+    fprintf(stderr,"%s: dom_count = %i\n", __func__, dom_count);;
+
     for(i = 0; i < dom_count; i++) {
+        fprintf(stderr, "checking %s\n", dom_list[i].name);
         if(dom_list[i].comm_type == BNH_COMM_RDV_CLI &&
            same_root_domain(dom, &dom_list[i])) {
             DEBUG_OUT("adding field %s for app %s\n", "gid", dom->name);
             dom_list[i].field = create_gid_field(dom_list[i].name, "gid", dom->cph, dom->mesh, NULL);
+            DEBUG_OUT("created field %p\n", (void *)(dom_list[i].field));
             pos++;
             count++;
         }
@@ -3547,7 +3554,6 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
         fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
         return (-1);
     }
-
     srv_dom = find_server_dom(bnh, dom, bnh->doms, bnh->dom_count);
     if(!srv_dom) {
         fprintf(stderr,
@@ -3559,8 +3565,11 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
         DEBUG_OUT("creating field %s for app %s.\n", "gid", dom->name);
         dom->field = create_gid_field(dom->name, "gid", dom->cph, dom->mesh, NULL);
+        DEBUG_OUT("created field %p\n", (void *)dom->field);
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
-        cpl_add_fields(bnh, dom, dom->subdoms, dom->subdom_count, 0);
+        DEBUG_OUT("server creating fields\n");
+        cpl_add_fields(bnh, dom, bnh->doms, bnh->dom_count, 0);
+
     }
     nverts = get_mesh_nverts(dom->mesh);
     for(i = 0; i < bnh->ifvar_count; i++) {

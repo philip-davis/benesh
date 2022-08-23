@@ -209,6 +209,13 @@ extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int
         isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i]);
     };
     Omega_h::parallel_for(classIds.size(), markOverlap);
+    auto isOwned = mesh->owned(0);
+    
+    // try masking out to only owned entities
+    Omega_h::parallel_for(
+        isOverlap.size(),
+        OMEGA_H_LAMBDA(int i) { isOverlap[i] = (isOwned[i] && isOverlap[i]); });
+    
     Omega_h::Read<Omega_h::I8> *isOverlap_r = new Omega_h::Read<Omega_h::I8>(Omega_h::read(isOverlap));
     mesh->add_tag(0, "isOverlap", 1, *isOverlap_r);
     return((struct omegah_array *)isOverlap_r);
