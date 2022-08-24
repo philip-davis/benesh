@@ -2,6 +2,7 @@
 #include<iostream>
 #include<cstdint>
 #include<span>
+#include<cstring>
 
 #include<mpi.h>
 
@@ -21,7 +22,7 @@ std::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const
     return(std::span<uint64_t>(var_buf, N));
 }
 
-void client(const char *meshFileName, int clientId)
+void client(const char *meshFileName, int clientId, const char *cpnFileName)
 {
     benesh_app_id bnh;
     std::stringstream ss;
@@ -30,7 +31,7 @@ void client(const char *meshFileName, int clientId)
     ss << "client" << clientId;
     
     benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
-    std::span<uint64_t> msg = bind_data(bnh, meshFileName, NULL);
+    std::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
 
     for(int i = 0; i < 3; i++) {
         // set data in msg
@@ -75,10 +76,10 @@ int main(int argc, char** argv)
 
     const auto clientId = atoi(argv[1]);
     const auto meshFileName = argv[2];
-    const auto cpnFileName = argv[3];
+    const auto cpnFileName = strcmp(argv[3], "ignored") == 0 ? (const char *)NULL : argv[3];
 
     if(clientId) {
-        client(meshFileName, clientId);
+        client(meshFileName, clientId, cpnFileName);
     } else {
         server(meshFileName, cpnFileName);
     }
