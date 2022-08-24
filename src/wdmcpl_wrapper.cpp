@@ -80,6 +80,4 @@ extern "C" void cpl_recv_field(struct cpl_gid_field *field, double **buffer, siz
     field->comm->Receive();
 }
 
-extern "C" void 
-
 #endif
