@@ -105,6 +105,7 @@ struct DeserializeOmegaH
     auto gids = mesh_.globals(0);
     auto gids_h = Omega_h::HostRead(gids);
     std::vector<redev::GO> global_ids;
+    /*
     if(*num_elem_ != buffer.size()) {
         if(*num_elem_) {
             free(*out_buf_);
@@ -112,6 +113,7 @@ struct DeserializeOmegaH
         *num_elem_ = buffer.size();
         *out_buf_ = malloc(*num_elem_ * sizeof(T));
     }
+    */
     for (size_t i = 0, j = 0; i < gids_h.size(); i++) {
       if (is_overlap_h_[i]) {
         REDEV_ALWAYS_ASSERT(gids_h[i] == buffer[permutation[j++]]);

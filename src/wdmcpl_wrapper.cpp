@@ -30,7 +30,6 @@ struct cpl_hndl {
 struct cpl_gid_field {
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm;
     std::vector<wdmcpl::GO> gid_field;
-
 };
 
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server)
@@ -80,5 +79,7 @@ extern "C" void cpl_recv_field(struct cpl_gid_field *field, double **buffer, siz
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm = field->comm;
     field->comm->Receive();
 }
+
+extern "C" void 
 
 #endif
