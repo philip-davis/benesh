@@ -54,6 +54,16 @@ template <class T> void getAndPrintTime(T start, std::string_view key, int rank)
         printTime(key, min, max, avg);
 }
 
+int b_gen_data(benesh_app_id bnh, void *arg)
+{
+    return(0);
+}
+
+int b_field_transfer(benesh_app_id bnh, void *arg)
+{
+    return(0);
+}
+
 nonstd::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const char *cpnFileName)
 {
     char *dom_name;
@@ -81,6 +91,8 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
     
     benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
+    benesh_bind_method(bnh, "gen_data", b_gen_data, NULL);
+    benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
 
     for(int i = 0; i < 11; i++) {
         // set data in msg
@@ -102,6 +114,8 @@ void server(const char *meshFileName, const char *cpnFileName)
 
     benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
+    benesh_bind_method(bnh, "gen_data", b_gen_data, NULL);
+    benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
     int rank;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
