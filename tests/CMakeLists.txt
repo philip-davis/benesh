@@ -58,3 +58,7 @@ if(_apex_FOUND)
     target_link_libraries(bredev_oh apex)
     set(NEED_APEX "apex")
 endif()
+
+install(TARGETS heateq_adhoc heateq_adhoc_async heateq_benesh bredev_oh
+  DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
