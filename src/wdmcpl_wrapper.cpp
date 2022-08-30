@@ -42,6 +42,11 @@ extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_me
     return(cpl_h);
 }
 
+extern "C" void close_cpl(struct cpl_hndl *cpl_h)
+{
+    delete(cpl_h->cpl);
+}
+
 extern "C" void mark_cpl_overlap(struct cpl_hndl *cph, struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class)
 {
     if(cph->server) {

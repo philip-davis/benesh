@@ -3256,6 +3256,20 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     APEX_TIMER_STOP(0);
 }
 
+void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
+{
+    int i;
+    
+    for(i = 0; i < dom_count; i++) {
+        if(dom_list[i].cph) {
+            close_cpl(dom_list[i].cph);
+        }
+        if(dom_list[i].subdom_count) {
+            close_cpls(bnh, dom_list[i].subdoms, dom_list[i].subdom_count);
+        }
+    }
+}
+
 int benesh_fini(struct benesh_handle *bnh)
 {
     uint32_t comp_id = bnh->comp_id;
@@ -3267,6 +3281,7 @@ int benesh_fini(struct benesh_handle *bnh)
         benesh_handle_work(bnh);
     }
     MPI_Barrier(bnh->mycomm);
+    close_cpls(bnh, bnh->doms, bnh->dom_count);
     if(bnh->rank == 0) {
         //dspaces_kill(bnh->dsp);
         DEBUG_OUT("did dspaces_kill\n");
