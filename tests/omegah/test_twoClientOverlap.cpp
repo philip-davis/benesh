@@ -1,11 +1,12 @@
 #include<sstream>
 #include<iostream>
 #include<cstdint>
-#include<span>
 #include<cstring>
 #include<sys/prctl.h>
 
 #include<mpi.h>
+
+#include "span.h"
 
 #include "benesh.h"
 
@@ -24,7 +25,7 @@
 #endif
 
 
-std::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const char *cpnFileName)
+nonstd::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const char *cpnFileName)
 {
     char *dom_name;
     uint64_t *var_buf;
@@ -35,7 +36,7 @@ std::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const
     var_buf = (uint64_t *)benesh_get_var_buf(bnh, "data", &buf_size);
     const size_t N = buf_size / sizeof(uint64_t);
 
-    return(std::span<uint64_t>(var_buf, N));
+    return(nonstd::span<uint64_t>(var_buf, N));
 }
 
 void client(const char *meshFileName, int clientId, const char *cpnFileName)
@@ -47,7 +48,7 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
     ss << "client" << clientId;
     
     benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
-    std::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
+    nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
 
     for(int i = 0; i < 3; i++) {
         // set data in msg
@@ -64,7 +65,7 @@ void server(const char *meshFileName, const char *cpnFileName)
     benesh_app_id bnh;
 
     benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
-    std::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
+    nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
 
     for(int i = 0; i < 3; i++) {
         std::stringstream ss;
