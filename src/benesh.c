@@ -181,7 +181,7 @@ struct work_node {
         struct work_node *link;
     };
     int subrule;
-    uint64_t *var_maps;
+    int64_t *var_maps;
     dspaces_sub_t req;
     int announce;
     int realize;
@@ -269,7 +269,7 @@ struct benesh_handle {
 };
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
-                               char **map_names, uint64_t *map_vals, int *val);
+                               char **map_names, int64_t *map_vals, int *val);
 static int match_target_rule(struct xc_list_node *obj, struct wf_target *tgt);
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
                                 char ***map);
@@ -277,8 +277,8 @@ void print_work_node(FILE *stream, struct benesh_handle *bnh,
                      struct work_node *wnode);
 void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
                         struct work_node *wnode);
-void print_object(FILE *stream, struct wf_target *rule, uint64_t *map_vals);
-void print_object_nl(FILE *stream, struct wf_target *rule, uint64_t *map_vals);
+void print_object(FILE *stream, struct wf_target *rule, int64_t *map_vals);
+void print_object_nl(FILE *stream, struct wf_target *rule, int64_t *map_vals);
 
 int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
 struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
@@ -287,7 +287,7 @@ struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
 
 struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
-                           int nmappings, char **map_names, uint64_t *vals)
+                           int nmappings, char **map_names, int64_t *vals)
 {
     struct pq_obj *res_obj;
     int obj_len = xc_obj_len(obj);
@@ -346,7 +346,7 @@ struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
     return (res_obj);
 }
 
-char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
+char *obj_atom_tostr(struct wf_target *tgt, int64_t *maps, int pos)
 {
     char *res;
     int i;
@@ -364,7 +364,7 @@ char *obj_atom_tostr(struct wf_target *tgt, uint64_t *maps, int pos)
     }
 }
 
-char *wf_target_tostr(struct wf_target *tgt, uint64_t *maps)
+char *wf_target_tostr(struct wf_target *tgt, int64_t *maps)
 {
     char *str1, *str2, *res;
     int i;
@@ -383,7 +383,7 @@ char *wf_target_tostr(struct wf_target *tgt, uint64_t *maps)
 
 struct obj_entry *get_object_entry(struct benesh_handle *bnh,
                                    struct wf_target *rule, int subrule_id,
-                                   uint64_t *map_vals, int create)
+                                   int64_t *map_vals, int create)
 {
     struct xc_int_hash_map *imap, *parent_imap;
     int rule_id = rule - bnh->tgts;
@@ -447,11 +447,13 @@ struct obj_entry *get_object_entry(struct benesh_handle *bnh,
             }
         }
     }
+
+    return(NULL);
 }
 
 // must enter with db_mutex held!
 int sub_target(struct benesh_handle *bnh, struct wf_target *rule, int subtgt_id,
-               uint64_t *map_vals, struct work_node *sub)
+               int64_t *map_vals, struct work_node *sub)
 {
     struct obj_entry *ent;
     struct obj_sub_node **subn;
@@ -505,7 +507,7 @@ int sub_target(struct benesh_handle *bnh, struct wf_target *rule, int subtgt_id,
 }
 
 int object_realized(struct benesh_handle *bnh, struct wf_target *rule,
-                    uint64_t *map_vals)
+                    int64_t *map_vals)
 {
     struct obj_entry *ent;
 
@@ -527,7 +529,7 @@ int object_realized(struct benesh_handle *bnh, struct wf_target *rule,
 }
 
 int object_pending(struct benesh_handle *bnh, struct wf_target *rule,
-                   uint64_t *map_vals)
+                   int64_t *map_vals)
 {
     struct obj_entry *ent;
 
@@ -583,7 +585,7 @@ void print_pq_obj_nl(FILE *stream, struct pq_obj *pq)
     fprintf(stream, "\n");
 }
 
-void print_object(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
+void print_object(FILE *stream, struct wf_target *rule, int64_t *map_vals)
 {
     int var_loc;
     int i, j;
@@ -606,7 +608,7 @@ void print_object(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
     }
 }
 
-void print_object_nl(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
+void print_object_nl(FILE *stream, struct wf_target *rule, int64_t *map_vals)
 {
     int var_loc;
     int i, j;
@@ -631,7 +633,7 @@ void print_object_nl(FILE *stream, struct wf_target *rule, uint64_t *map_vals)
 }
 
 void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
-                    uint64_t *map_vals)
+                    int64_t *map_vals)
 {
     struct obj_entry *ent;
     int i;
@@ -670,7 +672,7 @@ void realize_object(struct benesh_handle *bnh, struct wf_target *rule,
 }
 
 void obj_set_pending(struct benesh_handle *bnh, struct wf_target *rule,
-                     uint64_t *map_vals)
+                     int64_t *map_vals)
 {
     struct obj_entry *ent;
 
@@ -715,7 +717,7 @@ void benesh_make_active(struct benesh_handle *bnh, struct work_node *wnode)
 }
 
 int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
-                      uint64_t *map_vals, struct work_node *obj_work)
+                      int64_t *map_vals, struct work_node *obj_work)
 {
     struct work_node *chain, *wnode, **wnodep;
     struct sub_rule *subrule;
@@ -802,7 +804,7 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
 }
 
 struct wf_target *find_target_rule(struct benesh_handle *bnh,
-                                   struct pq_obj *obj, uint64_t **map_vals)
+                                   struct pq_obj *obj, int64_t **map_vals)
 {
     struct wf_target *tgt_rule;
     char **map;
@@ -830,7 +832,7 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
     struct wf_target *tgt_rule, *dep_tgt_rule;
     struct pq_obj **dep_tgts = NULL;
     struct work_node *obj_work_init, *obj_work_fini;
-    uint64_t *map_vals = NULL, *dep_map_vals;
+    int64_t *map_vals = NULL, *dep_map_vals;
     int realized, dep_remain = 0;
     int i;
 
@@ -1210,11 +1212,11 @@ int bnsh_tpoint_fini(struct tpoint_handle *tph)
     return (0);
 }
 
-int bnsh_tpoint_announce(struct benesh_handle *bnh, int rule, uint64_t *values)
+int bnsh_tpoint_announce(struct benesh_handle *bnh, int rule, int64_t *values)
 {
     struct tpoint_announce announce = {rule, values};
 
-    ekt_tell(bnh->ekth, NULL, bnh->tp_type, &announce);
+    return(ekt_tell(bnh->ekth, NULL, bnh->tp_type, &announce));
 }
 
 static char **tokenize_tpoint(const char *tpoint, int *tkcnt)
@@ -1265,7 +1267,7 @@ static int get_rule_size(struct tpoint_rule *rule)
 }
 
 static int match_rule(struct tpoint_rule *rule, char **tk_tpoint, int tkcnt,
-                      uint64_t **values)
+                      int64_t **values)
 {
     int mappos[rule->nmappings];
     int rsize = get_rule_size(rule);
@@ -1656,7 +1658,7 @@ static void benesh_init_vars(struct benesh_handle *bnh)
 }
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
-                               char **map_names, uint64_t *map_vals, int *val)
+                               char **map_names, int64_t *map_vals, int *val)
 {
     // TODO: extend!!!
     /*
@@ -2089,6 +2091,8 @@ static int benesh_load_targets(struct benesh_handle *bnh)
     bnh->known_objs = xc_new_ihash_map(tgt_count, 1);
 
     free(tgtnodes);
+
+    return(0);
 }
 
 int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
@@ -2191,6 +2195,8 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
 
     *handle = bnh;
     APEX_TIMER_STOP(0);
+
+    return(0);
 }
 
 void print_work_node(FILE *stream, struct benesh_handle *bnh,
@@ -2862,7 +2868,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
 int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
-    uint64_t *var_maps = wnode->var_maps;
+    int64_t *var_maps = wnode->var_maps;
     struct sub_rule *subrule = &tgt->subrule[wnode->subrule - 1];
     int result;
 
@@ -2892,11 +2898,11 @@ int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
 }
 
 static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
-                    uint64_t *map_vals)
+                    int64_t *map_vals)
 {
     struct pq_obj **dep_tgts = NULL;
     struct wf_target *dep_rule;
-    uint64_t *dep_map_vals;
+    int64_t *dep_map_vals;
     int i, j;
 
     APEX_FUNC_TIMER_START(deps_met);
@@ -3142,13 +3148,13 @@ void benesh_handle_work(struct benesh_handle *bnh)
 }
 
 static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
-                           uint64_t *tp_vars)
+                           int64_t *tp_vars)
 {
     struct pq_obj **fq_tgt = malloc(sizeof(*fq_tgt) * rule->num_tgts);
     struct xc_list_node *tgt_obj;
     struct wf_target *tgt_rule;
     char **map;
-    uint64_t *map_vals;
+    int64_t *map_vals;
     int found;
     int i, j;
 
@@ -3205,7 +3211,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     struct tpoint_announce announce;
     int rule_id;
     struct tpoint_rule **rulep = &tph->rules;
-    uint64_t *values;
+    int64_t *values;
     int found = 0;
     int i;
 
@@ -3330,6 +3336,8 @@ int benesh_fini(struct benesh_handle *bnh)
     free(bnh->name);
     MPI_Comm_free(&bnh->mycomm);
     free(bnh);
+
+    return(0);
 }
 
 int benesh_bind_method(struct benesh_handle *bnh, const char *name,
