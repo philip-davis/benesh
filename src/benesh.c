@@ -1179,10 +1179,13 @@ static int deserialize_fini(void *buf, void *bnh_v, void **fini_v)
 static int fini_watch(void *fini_v, void *bnh_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    // uint32_t comp_id = *(uint32_t *)fini_v;
+    uint32_t comp_id = *(uint32_t *)fini_v;
 
     ABT_mutex_lock(bnh->work_mutex);
     bnh->comp_count--;
+    if(bnh->f_debug) {
+        DEBUG_OUT("Got finalize from component %i. %i remaining\n", comp_id, bnh->comp_count);
+    }
     ABT_cond_signal(bnh->work_cond);
     ABT_mutex_unlock(bnh->work_mutex);
 
@@ -1414,6 +1417,7 @@ static void benesh_init_comps(struct benesh_handle *bnh)
     int i, j;
 
     compnodes = xc_get_all(conf->subconf, XC_NODE_COMP, &comp_count);
+    DEBUG_OUT("%i components in workflow\n", comp_count);
     bnh->comp_count = comp_count;
     bnh->comps = calloc(sizeof(*(bnh->comps)), comp_count);
     for(i = 0, bnh->ifvar_count = 0; i < comp_count; i++) {
@@ -1590,7 +1594,7 @@ static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
     }
     domnodes = xc_get_all(conf_dom->decl, XC_NODE_DOM, &dom->subdom_count);
     if(dom->subdom_count > 0) {
-        dom->subdoms = malloc(sizeof(*dom->subdoms) * dom->subdom_count);
+        dom->subdoms = calloc(sizeof(*dom->subdoms), dom->subdom_count);
         for(i = 0; i < dom->subdom_count; i++) {
             load_domain(bnh, domnodes[i], &dom->subdoms[i], dom->full_name);
         }
@@ -2343,8 +2347,8 @@ void handle_method(struct benesh_handle *bnh, struct sub_rule *subrule)
 
     mth = &bnh->mths[subrule->mth_id];
     if(!mth->method) {
-        fprintf(stderr, "ERROR: no mapped function for method '%s'.\n",
-                subrule->expr->minst->method->name);
+        //fprintf(stderr, "ERROR: no mapped function for method '%s'.\n",
+        //        subrule->expr->minst->method->name);
     } else {
         mth->method(bnh, mth->arg);
     }
@@ -2930,6 +2934,8 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct work_node *link;
 
+    DEBUG_OUT("handling work node %p with type %i\n", (void *)wnode, wnode->type);
+
     APEX_FUNC_TIMER_START(handle_work);
     switch(wnode->type) {
     case BNH_WORK_OBJ:
@@ -3071,12 +3077,14 @@ void benesh_handle_work(struct benesh_handle *bnh)
     APEX_NAME_TIMER_START(1, "lock_work_bhwa");
     ABT_mutex_lock(bnh->work_mutex);
     APEX_TIMER_STOP(1);
-    if(!bnh->wqueue_tail && bnh->comp_count > 1) {
+    if(!bnh->wqueue_tail && bnh->comp_count) {
         APEX_NAME_TIMER_START(2, "wait_work");
         DEBUG_OUT("Work queue empty. Waiting for new work\n");
         ABT_cond_wait(bnh->work_cond, bnh->work_mutex);
         DEBUG_OUT("New work notification\n");
         APEX_TIMER_STOP(2);
+    } else if(!bnh->comp_count) {
+        DEBUG_OUT("Skipping wait even though the work queue is empty (comp_count is %i)\n", bnh->comp_count);
     }
 
     while(bnh->wqueue_tail) {
@@ -3128,11 +3136,8 @@ void benesh_handle_work(struct benesh_handle *bnh)
     }
     ABT_mutex_unlock(bnh->work_mutex);
 
-#ifdef BDEBUG
-    if(handled) {
-        fprintf(stderr, "wqueue cleared by handling %i nodes\n", handled);
-    }
-#endif /* BDEBUG */
+    DEBUG_OUT("handled %i work nodes\n", handled);
+
     APEX_TIMER_STOP(0);
 }
 
@@ -3255,13 +3260,9 @@ int benesh_fini(struct benesh_handle *bnh)
 {
     uint32_t comp_id = bnh->comp_id;
     MPI_Barrier(bnh->mycomm);
-    if(bnh->rank == 0) {
-        DEBUG_OUT("sending fini\n");
-    }
+    DEBUG_OUT("sending fini\n");
     ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
-    if(bnh->rank == 0) {
-        DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
-    }
+    DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
     while(bnh->comp_count) {
         benesh_handle_work(bnh);
     }
@@ -3285,6 +3286,7 @@ int benesh_fini(struct benesh_handle *bnh)
     if(bnh->rank == 0) {
         DEBUG_OUT("did ekt_fini\n");
     }
+    sleep(1);
     margo_finalize(bnh->mid);
     MPI_Barrier(bnh->mycomm);
     if(bnh->rank == 0) {
