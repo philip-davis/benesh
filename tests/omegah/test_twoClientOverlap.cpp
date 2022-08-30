@@ -62,7 +62,7 @@ void server(const char *meshFileName, const char *cpnFileName)
 
 int main(int argc, char** argv)
 {
-    int rank;
+    int rank, size;
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -74,6 +74,16 @@ int main(int argc, char** argv)
         exit(-1);
     }
 
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+ 
+    prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+
+#ifdef USE_APEX
+    apex_init("xgc couple", rank, size);
+#endif
+
+
     const auto clientId = atoi(argv[1]);
     const auto meshFileName = argv[2];
     const auto cpnFileName = strcmp(argv[3], "ignored") == 0 ? (const char *)NULL : argv[3];
@@ -84,6 +94,9 @@ int main(int argc, char** argv)
         server(meshFileName, cpnFileName);
     }
 
+#ifdef USE_APEX
+    apex_finalize();
+#endif
     MPI_Finalize();
 
     return(0);

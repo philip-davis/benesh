@@ -30,11 +30,14 @@ set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set (CMAKE_PREFIX_PATH "" CACHE STRING "External dependencies path")
 #set (BUILD_SHARED_LIBS "OFF" CACHE BOOL "Build a shared library")
 
+option(ENABLE_TIMING "enable APEX timing output" OFF)
+
 include (xpkg-import)
 xpkg_import_module(ekt REQUIRED ekt)
 xpkg_import_module(argobots REQUIRED argobots)
-xpkg_import_module(apex apex)
-
+if(${ENABLE_TIMING})
+  xpkg_import_module(apex apex)
+endif()
 
 find_package(dspaces REQUIRED)
 find_package(MPI COMPONENTS REQUIRED)
