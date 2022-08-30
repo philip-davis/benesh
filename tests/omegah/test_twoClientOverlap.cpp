@@ -2,6 +2,7 @@
 #include<iostream>
 #include<cstdint>
 #include<cstring>
+#include<chrono>
 #include<sys/prctl.h>
 
 #include<mpi.h>
@@ -25,6 +26,34 @@
 #endif
 
 
+void timeMinMaxAvg(double time, double& min, double& max, double& avg) {
+  const auto comm = MPI_COMM_WORLD;
+  int nproc;
+  MPI_Comm_size(comm, &nproc);
+  double tot = 0;
+  MPI_Allreduce(&time, &min, 1, MPI_DOUBLE, MPI_MIN, comm);
+  MPI_Allreduce(&time, &max, 1, MPI_DOUBLE, MPI_MAX, comm);
+  MPI_Allreduce(&time, &tot, 1, MPI_DOUBLE, MPI_SUM, comm);
+  avg = tot / nproc;
+}
+
+void printTime(std::string_view mode, double min, double max, double avg) {
+  std::stringstream ss;
+  ss << mode << " elapsed time min, max, avg (s): "
+   << min << " " << max << " " << avg << "\n";
+  std::cout << ss.str();
+}
+
+template <class T> void getAndPrintTime(T start, std::string_view key, int rank)
+{
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    double min, max, avg;
+    timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
+    if(!rank)
+        printTime(key, min, max, avg);
+}
+
 nonstd::span<uint64_t> bind_data(benesh_app_id bnh, const char *meshFileName, const char *cpnFileName)
 {
     char *dom_name;
@@ -44,17 +73,23 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
     benesh_app_id bnh;
     std::stringstream ss;
     char *dom_name;
+    char timer_str[100];
+    int rank;
 
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     ss << "client" << clientId;
     
     benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
 
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < 11; i++) {
         // set data in msg
         std::stringstream ss;
         ss << "step." << i;
+        sprintf(timer_str, "client%i.SendRecv%i", clientId, i);
+        auto start = std::chrono::steady_clock::now();
         benesh_tpoint(bnh, ss.str().c_str());
+        getAndPrintTime(start,timer_str,rank);
     }
 
     benesh_fini(bnh);
@@ -63,14 +98,20 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
 void server(const char *meshFileName, const char *cpnFileName)
 {
     benesh_app_id bnh;
+    char timer_str[100];
 
     benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
+    int rank;
 
-    for(int i = 0; i < 3; i++) {
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    for(int i = 0; i < 10; i++) {
         std::stringstream ss;
         ss << "step." << i;
+        sprintf(timer_str, "serverSendRecv%i", i);
+        auto start = std::chrono::steady_clock::now();
         benesh_tpoint(bnh, ss.str().c_str());
+        getAndPrintTime(start,timer_str, rank);
         // check data in msg
     }
 
