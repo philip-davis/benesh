@@ -19,4 +19,6 @@ void cpl_send_field(struct cpl_gid_field *field);
 
 void cpl_recv_field(struct cpl_gid_field *field, double **buffer, size_t *num_elem);
 
+void report_send_recv_timing(struct cpl_gid_field *field, const char *name);
+
 #endif /* __BNH_CPL_WRAPPER_H_ */

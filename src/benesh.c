@@ -3256,6 +3256,23 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     APEX_TIMER_STOP(0);
 }
 
+static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
+{
+    int i;
+
+    DEBUG_OUT("dom_count = %i\n", dom_count);
+
+    for(i = 0; i < dom_count; i++) {
+        DEBUG_OUT("checking %si\n", dom_list[i].name);
+        if(dom_list[i].field) {
+            report_send_recv_timing(dom_list[i].field, dom_list[i].name);
+        }
+        if(dom_list[i].subdom_count) {
+            report_cpl_timings(bnh, dom_list[i].subdoms, dom_list[i].subdom_count);
+        }
+    }
+}
+
 void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
 {
     int i;
@@ -3273,6 +3290,9 @@ void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_c
 int benesh_fini(struct benesh_handle *bnh)
 {
     uint32_t comp_id = bnh->comp_id;
+
+    report_cpl_timings(bnh, bnh->doms, bnh->dom_count);  
+
     MPI_Barrier(bnh->mycomm);
     DEBUG_OUT("sending fini\n");
     ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
