@@ -258,13 +258,21 @@ extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mes
     //this is a crime: host -> device -> host
     auto isOverlapOwned_dr = Omega_h::read(Omega_h::Write(isOverlapOwned));
     Omega_h::HostRead<Omega_h::I8> *isOverlapOwned_hr = new Omega_h::HostRead<Omega_h::I8>(Omega_h::HostRead(isOverlapOwned_dr));
-    mesh->add_tag(0, "isOverlap", 1, isOverlapOwned_dr);
+    mesh->mesh.add_tag(0, "isOverlap", 1, isOverlapOwned_dr);
     return((struct omegah_array *)isOverlapOwned_hr);
 }
 
-extern "C" int get_mesh_nverts(struct omegah_mesh *meshp)
+extern "C" int get_mesh_nverts(struct omegah_mesh *mesh)
 {
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)meshp;
-    return(mesh->nverts());
+    return(mesh->mesh.nverts());
 }
 
+extern "C" void *get_mesh(struct omegah_mesh *mesh)
+{
+    return((void *)&mesh->mesh);
+}
+
+extern "C" void close_mesh(struct omegah_mesh *mesh)
+{
+    delete(mesh);
+}

@@ -2802,14 +2802,13 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     struct cpl_gid_field *field;
     size_t num_elem;
 
-    DEBUG_OUT("receiving from comp %i with cpl %p\n", prule->comp_id,
-              (void *)src_dom->field);
-
     if(dst_var->buf) {
         free(dst_var->buf);
         dst_var->buf = NULL;
     }
     field = (dst_dom->comm_type == BNH_COMM_RDV_SRV) ? src_dom->field : dst_dom->field;
+    DEBUG_OUT("receiving from comp %i with cpl %p\n", prule->comp_id,
+              (void *)field);
     cpl_recv_field(field, (double **)&dst_var->buf, &num_elem);
     //rdv_recv(src_dom->rdv, bnh->rank, &dst_var->buf, &num_elem);
     dst_var->buf_size = num_elem;
@@ -3266,10 +3265,7 @@ static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain *dom_
 {
     int i;
 
-    DEBUG_OUT("dom_count = %i\n", dom_count);
-
     for(i = 0; i < dom_count; i++) {
-        DEBUG_OUT("checking %si\n", dom_list[i].name);
         if(dom_list[i].field) {
             report_send_recv_timing(dom_list[i].field, dom_list[i].name);
         }
@@ -3286,6 +3282,9 @@ void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_c
     for(i = 0; i < dom_count; i++) {
         if(dom_list[i].cph) {
             close_cpl(dom_list[i].cph);
+            if(dom_list[i].mesh) {
+                close_mesh(dom_list[i].mesh);
+            }
         }
         if(dom_list[i].subdom_count) {
             close_cpls(bnh, dom_list[i].subdoms, dom_list[i].subdom_count);
@@ -3297,16 +3296,17 @@ int benesh_fini(struct benesh_handle *bnh)
 {
     uint32_t comp_id = bnh->comp_id;
 
-    report_cpl_timings(bnh, bnh->doms, bnh->dom_count);  
+    DEBUG_OUT("started fini\n");
 
-    MPI_Barrier(bnh->mycomm);
     DEBUG_OUT("sending fini\n");
     ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
     DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
     while(bnh->comp_count) {
         benesh_handle_work(bnh);
     }
+    DEBUG_OUT("all peers components finished\n");
     MPI_Barrier(bnh->mycomm);
+    report_cpl_timings(bnh, bnh->doms, bnh->dom_count);
     close_cpls(bnh, bnh->doms, bnh->dom_count);
     if(bnh->rank == 0) {
         //dspaces_kill(bnh->dsp);

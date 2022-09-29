@@ -1,6 +1,19 @@
 #ifndef _BNH_OH_WRAPPER_
 #define _BNH_OH_WRAPPER_
 
+#ifdef USE_APEX
+#include <apex.h>
+#define APEX_FUNC_TIMER_START(fn)                                              \
+    apex_profiler_handle profiler0 = apex_start(APEX_FUNCTION_ADDRESS, &fn);
+#define APEX_NAME_TIMER_START(num, name)                                       \
+    apex_profiler_handle profiler##num = apex_start(APEX_NAME_STRING, name);
+#define APEX_TIMER_STOP(num) apex_stop(profiler##num);
+#else
+#define APEX_FUNC_TIMER_START(fn) (void)0;
+#define APEX_NAME_TIMER_START(num, name) (void)0;
+#define APEX_TIMER_STOP(num) (void)0;
+#endif
+
 #ifdef __cplusplus
 #include<redev.h>
 #include<redev_variant_tools.h>
@@ -152,11 +165,13 @@ struct SerializeServer
   int operator()(std::string_view name, nonstd::span<T> buffer,
                  nonstd::span<const wdmcpl::LO> permutation) const
   {
+    APEX_NAME_TIMER_START(1, "serialize_server");
     if (buffer.size() >= 0) {
       for (int i = 0; i < buffer.size(); ++i) {
         buffer[permutation[i]] = v_[i];
       }
     }
+    APEX_TIMER_STOP(1);
     return v_.size();
   }
 
@@ -226,8 +241,10 @@ void get_omegah_layout(struct omegah_mesh *meshp, struct rdv_ptn *rptn,
 #ifndef __cplusplus
 struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int min_class, int max_class);
 struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class);
+void *get_mesh(struct omegah_mesh *mesh);
 #endif
 
 int get_mesh_nverts(struct omegah_mesh *meshp);
+void close_mesh(struct omegah_mesh *mesh);
 
 #endif

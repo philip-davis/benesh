@@ -3,7 +3,6 @@
 #include<cstdint>
 #include<cstring>
 #include<chrono>
-#include<sys/prctl.h>
 
 #include<mpi.h>
 
@@ -94,6 +93,7 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
     benesh_bind_method(bnh, "gen_data", b_gen_data, NULL);
     benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
 
+    APEX_NAME_TIMER_START(1, "client_main_work");
     for(int i = 0; i < 11; i++) {
         // set data in msg
         std::stringstream ss;
@@ -101,8 +101,9 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
         sprintf(timer_str, "client%i.SendRecv%i", clientId, i);
         auto start = std::chrono::steady_clock::now();
         benesh_tpoint(bnh, ss.str().c_str());
-        getAndPrintTime(start,timer_str,rank);
+//        getAndPrintTime(start,timer_str,rank);
     }
+    APEX_TIMER_STOP(1);
 
     benesh_fini(bnh);
 }
@@ -114,20 +115,22 @@ void server(const char *meshFileName, const char *cpnFileName)
 
     benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
-    benesh_bind_method(bnh, "gen_data", b_gen_data, NULL);
     benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
     int rank;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+   
+    APEX_NAME_TIMER_START(1, "coupler_main_work");
     for(int i = 0; i < 10; i++) {
         std::stringstream ss;
         ss << "step." << i;
         sprintf(timer_str, "serverSendRecv%i", i);
         auto start = std::chrono::steady_clock::now();
         benesh_tpoint(bnh, ss.str().c_str());
-        getAndPrintTime(start,timer_str, rank);
+       // getAndPrintTime(start,timer_str, rank);
         // check data in msg
     }
+    APEX_TIMER_STOP(1);
 
     benesh_fini(bnh);
 }
@@ -135,8 +138,10 @@ void server(const char *meshFileName, const char *cpnFileName)
 int main(int argc, char** argv)
 {
     int rank, size;
+    int provided;
 
-    MPI_Init(NULL, NULL);
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    //MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     if(argc != 4) {
@@ -149,8 +154,6 @@ int main(int argc, char** argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
  
-    prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
-
 #ifdef USE_APEX
     apex_init("xgc couple", rank, size);
 #endif

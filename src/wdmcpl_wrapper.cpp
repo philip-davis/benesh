@@ -14,6 +14,20 @@
 #include "omegah_wrapper.h"
 #include "redev_wrapper.h"
 
+#ifdef USE_APEX
+#include <apex.h>
+#define APEX_FUNC_TIMER_START(fn)                                              \
+    apex_profiler_handle profiler0 = apex_start(APEX_FUNCTION_ADDRESS, &fn);
+#define APEX_NAME_TIMER_START(num, name)                                       \
+    apex_profiler_handle profiler##num = apex_start(APEX_NAME_STRING, name);
+#define APEX_TIMER_STOP(num) apex_stop(profiler##num);
+#else
+#define APEX_FUNC_TIMER_START(fn) (void)0;
+#define APEX_NAME_TIMER_START(num, name) (void)0;
+#define APEX_TIMER_STOP(num) (void)0;
+#endif
+
+
 static void timeMinMaxAvg(double time, double& min, double& max, double& avg) {
   const auto comm = MPI_COMM_WORLD;
   int nproc;
@@ -44,6 +58,7 @@ template <class T> void comparePrintTime(T start, T end, std::string_view key, i
 
 extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int min_class, int max_class);
 extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class);
+extern "C" void *get_mesh(struct omegah_mesh *mesh);
 
 struct cpl_hndl {
     wdmcpl::Coupler *cpl;
@@ -109,7 +124,9 @@ extern "C" void cpl_send_field(struct cpl_gid_field *field)
 {
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm = field->comm;
     field->tsendstart.push_back(std::chrono::steady_clock::now());
+    APEX_NAME_TIMER_START(1, "field_send");
     comm->Send();
+    APEX_TIMER_STOP(1);
     field->tsendend.push_back(std::chrono::steady_clock::now());
 }
 
@@ -117,7 +134,9 @@ extern "C" void cpl_recv_field(struct cpl_gid_field *field, double **buffer, siz
 {
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm = field->comm;
     field->trecvstart.push_back(std::chrono::steady_clock::now());
+    APEX_NAME_TIMER_START(1, "field_recv");
     field->comm->Receive();
+    APEX_TIMER_STOP(1);
     field->trecvend.push_back(std::chrono::steady_clock::now());
 }
 
@@ -127,8 +146,6 @@ extern "C" void report_send_recv_timing(struct cpl_gid_field *field, const char 
     char timer_str[100];
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    std::cerr << "Rank " << rank <<" has " << field->tsendstart.size() << " send timers and " << field->trecvstart.size() << " recv timers." << std::endl;
 
     for(i = 0; i < field->tsendstart.size(); i++) {
         sprintf(timer_str, "%sSend%i", name, i);

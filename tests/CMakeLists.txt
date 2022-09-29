@@ -27,6 +27,14 @@ target_include_directories(bredev_oh PRIVATE
 target_compile_options(bredev_oh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(bredev_oh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h)
 
+add_executable(proxy_couple wdmcpl/test_proxy_coupling.cpp wdmcpl/test_support.cpp)
+set_property(TARGET proxy_couple  PROPERTY CXX_STANDARD 20)
+target_include_directories(proxy_couple PRIVATE
+    ${MPI_CXX_INCLUDE_PATH}
+)
+target_compile_options(proxy_couple PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(proxy_couple ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h)
+
 add_executable(heateq_adhoc heateq/heateq2d_adhoc.c heateq/heat.c)
 
 target_include_directories(heateq_adhoc PRIVATE
@@ -56,9 +64,11 @@ if(_apex_FOUND)
     target_link_libraries(heateq_adhoc_async apex)
     target_link_libraries(heateq_benesh apex)
     target_link_libraries(bredev_oh apex)
+    target_link_libraries(proxy_couple apex)
+    target_link_libraries(rmbench apex)
     set(NEED_APEX "apex")
 endif()
 
-install(TARGETS heateq_adhoc heateq_adhoc_async heateq_benesh bredev_oh
+install(TARGETS heateq_adhoc heateq_adhoc_async heateq_benesh bredev_oh proxy_couple rmbench
   DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

@@ -39,6 +39,10 @@ if(${ENABLE_TIMING})
   xpkg_import_module(apex apex)
 endif()
 
+if(ENABLE_DSP_REDEV)
+    add_definitions(-DUSE_DSP_REDEV)
+endif()
+
 find_package(dspaces REQUIRED)
 find_package(MPI COMPONENTS REQUIRED)
 find_package(redev REQUIRED)

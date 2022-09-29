@@ -38,8 +38,13 @@ extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
     // return (struct rdv_comm *)(new redev::AdiosComm<redev::LO>(
     //    *comm, ranks.size(), rdv.getToEngine(), rdv.getIO(), name));
     adios2::Params params{{"Streaming", "On"}, {"OpenTimeoutSecs", "60"}};
+#ifdef USE_DSP_REDEV
+     return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::LO>(
+        rdv.CreateDSpacesClient<redev::LO>(name))));
+#else
     return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::LO>(
-        rdv.CreateAdiosClient<redev::LO>(name, params, redev::TransportType::BP4))));
+        rdv.CreateAdiosClient<redev::LO>(name, params, redev::TransportType::SST))));
+#endif
 }
 
 extern "C" struct rdv_comm *new_rdv_comm_ptn(MPI_Comm *comm, const char *name,
@@ -48,8 +53,13 @@ extern "C" struct rdv_comm *new_rdv_comm_ptn(MPI_Comm *comm, const char *name,
     auto ptn = (redev::ClassPtn *)rptn;
     static redev::Redev rdv(MPI_COMM_WORLD, *ptn, (isRdv ? redev::ProcessType::Server : redev::ProcessType::Client)); //TODO
     adios2::Params params{{"Streaming", "On"}, {"OpenTimeoutSecs", "600"}};
+#ifdef USE_DSP_REDEV
     return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::GO>(
-        rdv.CreateAdiosClient<redev::GO>(std::string(name), params, redev::TransportType::BP4))));
+        rdv.CreateDSpacesClient<redev::GO>(std::string(name)))));
+#else
+    return ((struct rdv_comm *)(new redev::BidirectionalComm<redev::GO>(
+        rdv.CreateAdiosClient<redev::GO>(std::string(name), params, redev::TransportType::SST))));
+#endif
 }
 
 extern "C" void rdv_layout(struct rdv_comm *comm, int count, uint32_t *dest,
