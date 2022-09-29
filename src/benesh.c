@@ -533,26 +533,19 @@ int object_pending(struct benesh_handle *bnh, struct wf_target *rule,
 {
     struct obj_entry *ent;
 
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Getting db lock in %s\n", __func__);
-#endif
     ABT_mutex_lock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Got db lock in %s\n", __func__);
-#endif
 
     ent = get_object_entry(bnh, rule, 0, map_vals, 0);
     if(ent && ent->pending) {
         ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-        fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
+        if(bnh->f_debug) {
+            DEBUG_OUT(" ");
+            print_object(stderr, rule, map_vals);
+            fprintf(stderr, " is pending\n");
+        }
         return 1;
     }
     ABT_mutex_unlock(bnh->db_mutex);
-#ifdef DEBUG_LOCKS
-    fprintf(stderr, "Released db lock in %s\n", __func__);
-#endif
     return 0;
 }
 
@@ -846,9 +839,18 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
     }
 
     tgt_rule = find_target_rule(bnh, tgt, &map_vals);
+    if(bnh->f_debug) {
+        DEBUG_OUT("scheduling ");
+        print_pq_obj(stderr, tgt);
+        DEBUG_OUT(" as rule %i\n", tgt_rule - bnh->tgts);
+    }
 
     realized = 0;
     if(object_realized(bnh, tgt_rule, map_vals)) {
+        if(bnh->f_debug) {
+            print_pq_obj(stderr, tgt);
+            DEBUG_OUT(" already realized.\n");
+        }
         realized = 1;
     } else if(!object_pending(bnh, tgt_rule, map_vals)) {
         obj_set_pending(bnh, tgt_rule, map_vals);
@@ -3058,6 +3060,8 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
 void announce_work(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct work_announce announce;
+    struct wf_target *tgt;
+    int i;
 
     announce.comp_id = bnh->comp_id;
     announce.tgt_id = wnode->tgt - bnh->tgts;
@@ -3066,6 +3070,12 @@ void announce_work(struct benesh_handle *bnh, struct work_node *wnode)
 
     DEBUG_OUT("announcing rule %i, subrule %i\n", announce.tgt_id,
               announce.subrule_id);
+    if(bnh->f_debug && wnode->subrule > 0) {
+        tgt = wnode->tgt;
+        for(i = 0; i < tgt->num_vars; i++) {
+            DEBUG_OUT(" tgt_var %i = %" PRIu64 "\n", i, wnode->var_maps[i]);
+        }
+    }
     APEX_NAME_TIMER_START(1, "ekt_tell_work");
     ekt_tell(bnh->ekth, NULL, bnh->work_type, &announce);
     APEX_TIMER_STOP(1);
