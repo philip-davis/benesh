@@ -82,7 +82,6 @@ struct cpl_gid_field {
 
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server)
 {
-    auto mesh = (Omega_h::Mesh *)meshp;
     auto ptn = (redev::ClassPtn *)ptnp;
     struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
     cpl_h->cpl = new wdmcpl::Coupler(wfname, (server ? wdmcpl::ProcessType::Server : wdmcpl::ProcessType::Client), MPI_COMM_WORLD, *ptn);
@@ -106,9 +105,9 @@ extern "C" void mark_cpl_overlap(struct cpl_hndl *cph, struct omegah_mesh *meshp
 
 extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const char *field_name, struct cpl_hndl *cphp, struct omegah_mesh *meshp, void *field_buf)
 {
+    Omega_h::Mesh *mesh = (Omega_h::Mesh *)get_mesh(meshp); 
     auto cpl_h = (wdmcpl::Coupler *)(cphp->cpl);
     auto &app = cpl_h->AddApplication(app_name);
-    auto mesh = (Omega_h::Mesh *)meshp;
     struct cpl_gid_field *field = new struct cpl_gid_field();
 
     if(cphp->server) {

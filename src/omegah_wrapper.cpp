@@ -13,7 +13,14 @@
 
 //#include <wdmcpl.h>
 
-struct omegah_mesh;
+struct omegah_mesh {
+    omegah_mesh(const char *meshFile, int *argc_, char ***argv_) : lib(argc_, argv_), mesh(&lib) {
+        Omega_h::binary::read(meshFile, lib.world(), &mesh);    
+    }
+
+    Omega_h::Library lib;
+    Omega_h::Mesh mesh;
+};
 struct omegah_array;
 
 /*
@@ -133,27 +140,21 @@ extern "C" struct omegah_mesh *new_oh_mesh(const char *meshFile)
 {
     int argc = 0;
     char **argv = NULL;
-    static auto lib = Omega_h::Library(&argc, &argv);
-    static auto world = lib.world();
-    static Omega_h::Mesh mesh(&lib);
-    Omega_h::binary::read(meshFile, lib.world(), &mesh);
-    return ((struct omegah_mesh *)&mesh);
+    return (new struct omegah_mesh(meshFile, &argc, &argv));
 }
 
-extern "C" struct rdv_ptn *create_oh_partition(struct omegah_mesh *meshp,
+extern "C" struct rdv_ptn *create_oh_partition(struct omegah_mesh *mesh,
                                                const char *cpnFile)
 {
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)meshp;
-
-    auto ohComm = mesh->comm();
+    auto ohComm = mesh->mesh.comm();
     ts::ClassificationPartition ptn;
 
     if(cpnFile) {
         const auto facePartition = !ohComm->rank()
                                        ? ts::readClassPartitionFile(cpnFile)
                                        : ts::ClassificationPartition();
-        ts::migrateMeshElms(*mesh, facePartition);
-        ptn = ts::CreateClassificationPartition(*mesh);
+        ts::migrateMeshElms(mesh->mesh, facePartition);
+        ptn = ts::CreateClassificationPartition(mesh->mesh);
         // rdv = redev::Redev(MPI_COMM_WORLD,rdv_ptn,true);
     } else {
         ptn = ts::ClassificationPartition();
@@ -164,14 +165,13 @@ extern "C" struct rdv_ptn *create_oh_partition(struct omegah_mesh *meshp,
                                                    ptn.modelEnts)));
 }
 
-extern "C" void get_omegah_layout(struct omegah_mesh *meshp,
+extern "C" void get_omegah_layout(struct omegah_mesh *mesh,
                                   struct rdv_ptn *rptn, uint32_t **dest,
                                   uint32_t **offset, size_t *num_dest)
 {
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)meshp;
     redev::ClassPtn *ptn = (redev::ClassPtn *)rptn;
 
-    ts::OutMsg appOut = ts::prepareAppOutMessage(*mesh, *ptn);
+    ts::OutMsg appOut = ts::prepareAppOutMessage(mesh->mesh, *ptn);
     *num_dest = appOut.dest.size();
     *dest = (uint32_t *)malloc(sizeof(**dest) * *num_dest);
     *offset = (uint32_t *)malloc(sizeof(**dest) * (*num_dest + 1));
@@ -195,13 +195,11 @@ static OMEGA_H_DEVICE Omega_h::I8 isModelEntInOverlap(const int dim,
     return 0;
 }
 
-extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int min_class,
+extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *mesh, int min_class,
                                   int max_class)
 {
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)meshp;
-
-    auto classIds = mesh->get_array<Omega_h::ClassId>(0, "class_id");
-    auto classDims = mesh->get_array<Omega_h::I8>(0, "class_dim");
+    auto classIds = mesh->mesh.get_array<Omega_h::ClassId>(0, "class_id");
+    auto classDims = mesh->mesh.get_array<Omega_h::I8>(0, "class_dim");
     auto isOverlap = Omega_h::Write<Omega_h::I8>(classIds.size(), "isOverlap");
 
     auto markOverlap = OMEGA_H_LAMBDA(int i)
@@ -209,7 +207,7 @@ extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int
         isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i]);
     };
     Omega_h::parallel_for(classIds.size(), markOverlap);
-    auto isOwned = mesh->owned(0);
+    auto isOwned = mesh->mesh.owned(0);
     
     // try masking out to only owned entities
     Omega_h::parallel_for(
@@ -217,21 +215,20 @@ extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *meshp, int
         OMEGA_H_LAMBDA(int i) { isOverlap[i] = (isOwned[i] && isOverlap[i]); });
     
     Omega_h::Read<Omega_h::I8> *isOverlap_r = new Omega_h::Read<Omega_h::I8>(Omega_h::read(isOverlap));
-    mesh->add_tag(0, "isOverlap", 1, *isOverlap_r);
+    mesh->mesh.add_tag(0, "isOverlap", 1, *isOverlap_r);
     return((struct omegah_array *)isOverlap_r);
 }
 
-extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class)
+extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mesh, struct rdv_ptn *rptn, int min_class, int max_class)
 {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)meshp;
     redev::ClassPtn *ptn = (redev::ClassPtn *)rptn;
 
     // transfer vtx classification to host
-    auto classIds = mesh->get_array<Omega_h::ClassId>(0, "class_id");
+    auto classIds = mesh->mesh.get_array<Omega_h::ClassId>(0, "class_id");
     auto classIds_h = Omega_h::HostRead(classIds);
-    auto classDims = mesh->get_array<Omega_h::I8>(0, "class_dim");
+    auto classDims = mesh->mesh.get_array<Omega_h::I8>(0, "class_dim");
     auto classDims_h = Omega_h::HostRead(classDims);
     auto isOverlap = Omega_h::Write<Omega_h::I8>(classIds.size(), "isOverlap");
     auto markOverlap = OMEGA_H_LAMBDA(int i)
@@ -239,12 +236,12 @@ extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mes
         isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i]);
     };
     Omega_h::parallel_for(classIds.size(), markOverlap);
-    auto owned_h = Omega_h::HostRead(mesh->owned(0));
+    auto owned_h = Omega_h::HostRead(mesh->mesh.owned(0));
     auto isOverlap_h = Omega_h::HostRead<Omega_h::I8>(isOverlap);
 
     // mask to only class partition owned entities
     auto isOverlapOwned = Omega_h::HostWrite<Omega_h::I8>(classIds.size(), "isOverlapAndOwnsModelEntInClassPartition");
-    for(int i=0; i<mesh->nverts(); i++) {
+    for(int i=0; i < mesh->mesh.nverts(); i++) {
         redev::ClassPtn::ModelEnt ent(classDims_h[i],classIds_h[i]);
         auto destRank = ptn->GetRank(ent);
         auto isModelEntOwned = (destRank == rank);
