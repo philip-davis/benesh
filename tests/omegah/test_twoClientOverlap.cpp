@@ -5,6 +5,7 @@
 #include<chrono>
 
 #include<mpi.h>
+#include <Kokkos_Core.hpp>
 
 #include "span.h"
 
@@ -140,6 +141,7 @@ int main(int argc, char** argv)
     int rank, size;
     int provided;
 
+    Kokkos::ScopeGuard kokkos{};
     MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
     //MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
