@@ -122,7 +122,7 @@ void server(const char *meshFileName, const char *cpnFileName)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
    
     APEX_NAME_TIMER_START(1, "coupler_main_work");
-    for(int i = 0; i < 10; i++) {
+    for(int i = 1; i < 10; i++) {
         std::stringstream ss;
         ss << "step." << i;
         sprintf(timer_str, "serverSendRecv%i", i);

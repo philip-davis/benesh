@@ -79,6 +79,7 @@ struct cpl_gid_field {
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm;
     std::vector<wdmcpl::GO> gid_field;
     */
+    ConvertibleCoupledField *field;
     char *field_name;
     struct cpl_hndl *cpl;
     std::vector<std::chrono::time_point<std::chrono::steady_clock>> tsendstart;
@@ -125,18 +126,18 @@ extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const ch
     //auto &app = cpl_h->AddApplication(app_name);
     struct cpl_gid_field *field = new struct cpl_gid_field();
 
-    field->field_name = strdup(field_name);
+    field->field_name = strdup(app_name);
     field->cpl = cphp;
 
     if(cphp->server) {
         auto cpl = (wdmcpl::CouplerServer *)(cphp->cpl_srv);
-        cpl->AddField(field_name, wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>(field_name, *mesh, *cphp->srv_overlap_h), wdmcpl::FieldTransferMethod::Copy,
+        field->field = cpl->AddField(app_name, wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>(app_name, *mesh, *cphp->srv_overlap_h), wdmcpl::FieldTransferMethod::Copy,
                wdmcpl::FieldEvaluationMethod::None,
                wdmcpl::FieldTransferMethod::Copy,
                wdmcpl::FieldEvaluationMethod::None, *cphp->srv_overlap_h);
     } else {
         auto cpl = (wdmcpl::CouplerClient *)(cphp->cpl_client);
-        cpl->AddField(field_name,  wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>("global", *mesh, *cphp->overlap_h));
+        cpl->AddField(app_name,  wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>("global", *mesh, *cphp->overlap_h));
     }
 
     return(field);
