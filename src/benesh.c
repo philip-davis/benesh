@@ -2105,6 +2105,9 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     const char *envdebug = getenv("BENESH_DEBUG");
     const char *envna = getenv("BENESH_NA");
     char *na;
+    struct hg_init_info hii = {0};
+    char margo_conf[1024];
+    struct margo_init_info mii = {0};
     int i;
 
     if(envdebug) {
@@ -2115,7 +2118,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
         DEBUG_OUT("using '%s' for NA string\n", envna);
         na = strdup(envna);
     } else {
-        DEBUG_OUT("using defeault NA string (\"sockets\")\n");
+        DEBUG_OUT("using default NA string (\"sockets\")\n");
         na = strdup("sockets");
     }
 
@@ -2127,7 +2130,16 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
 
-    bnh->mid = margo_init(na, MARGO_SERVER_MODE, 1, 1);
+    sprintf(margo_conf, "{ \"use_progress_thread\" : true, \"rpc_thread_count\" : 1, \"progress_timeout_ub_msec\": 50}");
+    hii.request_post_init = 1024;
+    hii.auto_sm = 0;
+    mii.hg_init_info = &hii;
+    mii.json_config = margo_conf;
+
+    bnh->mid = margo_init_ext(na, MARGO_SERVER_MODE, &mii);
+    if(bnh->f_debug) {
+        margo_set_log_level(bnh->mid, MARGO_LOG_TRACE);
+    }
     APEX_TIMER_STOP(1);
     bnh->name = strdup(name);
 
@@ -2749,7 +2761,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
                   src_var->buf_size);
         */
         field = src_dom->comm_type == BNH_COMM_RDV_SRV ? dst_dom->field : src_dom->field;
-        DEBUG_OUT("sending %li bytes using cpl %p\n", src_var->buf_size, field);
+        DEBUG_OUT("sending %s on %s using cpl %p\n", src_var->name, src_dom->full_name, field);
         //rdv_send(src_dom->rdv, bnh->rank, src_var->buf);
         cpl_send_field(field);
         DEBUG_OUT("sent\n");
