@@ -41,7 +41,7 @@ int main(int argc, char **argv)
 
     if(argc != 2) {
         if(!rank) {
-            fprintf(stderr, "Usage: %s <MPR>\n");
+            fprintf(stderr, "Usage: %s <MPR>\n", argv[0]);
         }
         exit(1);
     }

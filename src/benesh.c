@@ -842,7 +842,7 @@ int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt)
     if(bnh->f_debug) {
         DEBUG_OUT("scheduling ");
         print_pq_obj(stderr, tgt);
-        DEBUG_OUT(" as rule %i\n", tgt_rule - bnh->tgts);
+        DEBUG_OUT(" as rule %li\n", tgt_rule - bnh->tgts);
     }
 
     realized = 0;

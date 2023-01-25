@@ -1,11 +1,13 @@
 #include <Omega_h_mesh.hpp>
 #include <iostream>
-#include <wdmcpl.h>
+#include <wdmcpl/wdmcpl.h>
 #include <wdmcpl/types.h>
 #include <Omega_h_file.hpp>
 #include <Omega_h_for.hpp>
 #include <redev_variant_tools.h>
 #include "test_support.h"
+#include <wdmcpl/omega_h_field.h>
+#include <Kokkos_Core.hpp>
 
 #ifdef USE_APEX
 #include<apex.h>
@@ -51,11 +53,12 @@ OMEGA_H_DEVICE Omega_h::I8 isModelEntInOverlap(const int dim, const int id)
  * the client processes.
  *
  * On the client side we only care that each mesh vertex is sent by exactly one
- * client process (to the server process returned by GetRank(modelEntity)) so using
- * the ownership of mesh entities following the mesh partition ownership is OK.
- * The function markMeshOverlapRegion(...) supports this.
+ * client process (to the server process returned by GetRank(modelEntity)) so
+ * using the ownership of mesh entities following the mesh partition ownership
+ * is OK. The function markMeshOverlapRegion(...) supports this.
  */
-Omega_h::HostRead<Omega_h::I8> markServerOverlapRegion(Omega_h::Mesh& mesh, redev::ClassPtn& classPtn)
+auto markServerOverlapRegion(Omega_h::Mesh& mesh,
+                             const redev::ClassPtn& classPtn)
 {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -73,22 +76,23 @@ Omega_h::HostRead<Omega_h::I8> markServerOverlapRegion(Omega_h::Mesh& mesh, rede
   auto owned_h = Omega_h::HostRead(mesh.owned(0));
   auto isOverlap_h = Omega_h::HostRead<Omega_h::I8>(isOverlap);
   // mask to only class partition owned entities
-  auto isOverlapOwned = Omega_h::HostWrite<Omega_h::I8>(classIds.size(), "isOverlapAndOwnsModelEntInClassPartition");
-  for(int i=0; i<mesh.nverts(); i++) {
-    redev::ClassPtn::ModelEnt ent(classDims_h[i],classIds_h[i]);
+  auto isOverlapOwned = Omega_h::HostWrite<Omega_h::I8>(
+    classIds.size(), "isOverlapAndOwnsModelEntInClassPartition");
+  for (int i = 0; i < mesh.nverts(); i++) {
+    redev::ClassPtn::ModelEnt ent(classDims_h[i], classIds_h[i]);
     auto destRank = classPtn.GetRank(ent);
     auto isModelEntOwned = (destRank == rank);
     isOverlapOwned[i] = isModelEntOwned && isOverlap_h[i];
-    if( owned_h[i] && !isModelEntOwned ) {
+    if (owned_h[i] && !isModelEntOwned) {
       fprintf(stderr, "%d owner conflict %d ent (%d,%d) owner %d owned %d\n",
-          rank, i, classDims_h[i], classIds_h[i], destRank, owned_h[i]);
+              rank, i, classDims_h[i], classIds_h[i], destRank, owned_h[i]);
     }
   }
-  //this is a crime: host -> device -> host
+  // this is a crime: host -> device -> host
   auto isOverlapOwned_dr = Omega_h::read(Omega_h::Write(isOverlapOwned));
-  auto isOverlapOwned_hr = Omega_h::HostRead(isOverlapOwned_dr);
+  // auto isOverlapOwned_hr = Omega_h::HostRead(isOverlapOwned_dr);
   mesh.add_tag(0, "isOverlap", 1, isOverlapOwned_dr);
-  return isOverlapOwned_hr;
+  return isOverlapOwned_dr;
 }
 
 /**
@@ -118,166 +122,6 @@ Omega_h::Read<Omega_h::I8> markOverlapMeshEntities(Omega_h::Mesh& mesh)
   mesh.add_tag(0, "isOverlap", 1, isOverlap_r);
   return isOverlap_r;
 }
-Omega_h::HostRead<Omega_h::I8> markMeshOverlapRegion(Omega_h::Mesh& mesh)
-{
-  auto isOverlap = markOverlapMeshEntities(mesh);
-  return Omega_h::HostRead(isOverlap);
-}
-
-struct SerializeOmegaHGids
-{
-  SerializeOmegaHGids(Omega_h::Mesh& mesh,
-                      Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  int operator()(std::string_view, nonstd::span<T> buffer,
-                 nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    // WDMCPL_ALWAYS_ASSERT(buffer.size() == is_overlap_h_.size());
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    int count = 0;
-    for (size_t i = 0, j = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        if (buffer.size() > 0) {
-          buffer[permutation[j++]] = gids_h[i];
-        }
-        ++count;
-      }
-    }
-    return count;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-// Serializer is used in a two pass algorithm. Must check that the buffer size
-// >0 and return the number of entries.
-struct SerializeOmegaH
-{
-  SerializeOmegaH(Omega_h::Mesh& mesh,
-                  Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  int operator()(std::string_view name, nonstd::span<T> buffer,
-                 nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    // WDMCPL_ALWAYS_ASSERT(buffer.size() == is_overlap_h_.size());
-    const auto array = mesh_.get_array<T>(0, std::string(name));
-    const auto array_h = Omega_h::HostRead(array);
-    int count = 0;
-    for (size_t i = 0, j = 0; i < array_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        if (buffer.size() > 0) {
-          buffer[permutation[j++]] = array_h[i];
-        }
-        ++count;
-      }
-    }
-    return count;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-struct DeserializeOmegaH
-{
-  DeserializeOmegaH(Omega_h::Mesh& mesh,
-                    Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  void operator()(std::string_view, nonstd::span<const T> buffer,
-                  nonstd::span<const wdmcpl::LO> permutation) const
-  {
-
-    REDEV_ALWAYS_ASSERT(buffer.size() == permutation.size());
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    std::vector<wdmcpl::GO> global_ids;
-    for (size_t i = 0, j = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        REDEV_ALWAYS_ASSERT(gids_h[i] == buffer[permutation[j++]]);
-      }
-    }
-  }
-
-private:
-  Omega_h::Mesh& mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-struct OmegaHGids
-{
-  OmegaHGids(Omega_h::Mesh& mesh, Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  std::vector<wdmcpl::GO> operator()(std::string_view) const
-  {
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    std::vector<wdmcpl::GO> global_ids;
-    for (size_t i = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        global_ids.push_back(gids_h[i]);
-      }
-    }
-    return global_ids;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-struct OmegaHReversePartition
-{
-  OmegaHReversePartition(Omega_h::Mesh& mesh) : mesh(mesh) {}
-  wdmcpl::ReversePartitionMap operator()(std::string_view,
-                                         const redev::Partition& partition) const
-  {
-    auto ohComm = mesh.comm();
-    const auto rank = ohComm->rank();
-    // transfer vtx classification to host
-    auto classIds = mesh.get_array<Omega_h::ClassId>(0, "class_id");
-    auto classIds_h = Omega_h::HostRead(classIds);
-    auto classDims = mesh.get_array<Omega_h::I8>(0, "class_dim");
-    auto classDims_h = Omega_h::HostRead(classDims);
-    auto isOverlap =
-      mesh.has_tag(0, "isOverlap")
-        ? mesh.get_array<Omega_h::I8>(0, "isOverlap")
-        : Omega_h::Read<Omega_h::I8>(
-            classIds.size(), 1, "isOverlap"); // no mask for overlap vertices
-    auto isOverlap_h = Omega_h::HostRead(isOverlap);
-    // local_index number of vertices going to each destination process by
-    // calling getRank - degree array
-    wdmcpl::ReversePartitionMap reverse_partition;
-    wdmcpl::LO local_index = 0;
-    for (auto i = 0; i < classIds_h.size(); i++) {
-      if (isOverlap_h[i]) {
-        auto dr = std::visit(
-          redev::overloaded{
-            [&classDims_h, &classIds_h, &i](const redev::ClassPtn& ptn) {
-              const auto ent =
-                redev::ClassPtn::ModelEnt({classDims_h[i], classIds_h[i]});
-              return ptn.GetRank(ent);
-            },
-            [](const redev::RCBPtn& ptn) {
-              std::cerr << "RCB partition not handled yet\n";
-              std::exit(EXIT_FAILURE);
-              return 0;
-            }},
-          partition);
-        reverse_partition[dr].emplace_back(local_index++);
-      }
-    }
-    return reverse_partition;
-  }
-  Omega_h::Mesh& mesh;
-};
 
 redev::ClassPtn setupServerPartition(Omega_h::Mesh& mesh,
                                      std::string_view cpnFileName)
@@ -288,152 +132,158 @@ redev::ClassPtn setupServerPartition(Omega_h::Mesh& mesh,
                                ? ts::readClassPartitionFile(cpnFileName)
                                : ts::ClassificationPartition();
   ts::migrateMeshElms(mesh, facePartition);
-  REDEV_ALWAYS_ASSERT(mesh.nelems()); //all ranks should have elements
+  REDEV_ALWAYS_ASSERT(mesh.nelems()); // all ranks should have elements
   auto ptn = ts::CreateClassificationPartition(mesh);
   return redev::ClassPtn(MPI_COMM_WORLD, ptn.ranks, ptn.modelEnts);
 }
 
+// TODO: move to be internal to wdmcpl
+struct MeanCombiner
+{
+  void operator()(
+    const nonstd::span<
+      const std::reference_wrapper<wdmcpl::InternalField>>& fields,
+    wdmcpl::InternalField& combined_variant) const
+  {
+    std::visit(
+      [&fields](auto&& combined_field) {
+        using T = typename std::remove_reference_t<
+          decltype(combined_field)>::value_type;
+        Omega_h::Write<T> combined_array(combined_field.Size());
+        for (auto& field_variant : fields) {
+          std::visit(
+            [&combined_array, &combined_field](auto&& field) {
+              WDMCPL_ALWAYS_ASSERT(field.Size() == combined_array.size());
+              auto field_array = get_nodal_data(field);
+              Omega_h::parallel_for(
+                field_array.size(),
+                OMEGA_H_LAMBDA(int i) { combined_array[i] += field_array[i]; });
+            },
+            field_variant.get());
+        }
+        auto num_fields = fields.size();
+        Omega_h::parallel_for(
+          combined_array.size(),
+          OMEGA_H_LAMBDA(int i) { combined_array[i] /= num_fields; });
+        set_nodal_data(combined_field,
+                       make_array_view(Omega_h::Read(combined_array)));
+      },
+      combined_variant);
+  }
+};
+
+using wdmcpl::Copy;
+using wdmcpl::CouplerClient;
+using wdmcpl::CouplerServer;
+using wdmcpl::FieldEvaluationMethod;
+using wdmcpl::FieldTransferMethod;
+using wdmcpl::GO;
+using wdmcpl::Lagrange;
+using wdmcpl::make_array_view;
+using wdmcpl::OmegaHField;
+using wdmcpl::OmegaHFieldAdapter;
+
+static constexpr bool done = true;
+
 void xgc_delta_f(MPI_Comm comm, Omega_h::Mesh& mesh)
 {
-
-  wdmcpl::Coupler cpl("proxy_couple", wdmcpl::ProcessType::Client, comm,
-                      redev::ClassPtn{});
-  auto& delta_f = cpl.AddApplication("delta_f");
-  auto is_overlap_h = markMeshOverlapRegion(mesh);
-  auto& df_gid_field = delta_f.AddField<wdmcpl::GO>(
-    "gids", OmegaHGids{mesh, is_overlap_h}, OmegaHReversePartition{mesh},
-    SerializeOmegaHGids{mesh, is_overlap_h},
-    DeserializeOmegaH{mesh, is_overlap_h});
-
-  int rank; MPI_Comm_rank(comm, &rank);
+  CouplerClient cpl("proxy_couple", comm);
+  auto is_overlap = markOverlapMeshEntities(mesh);
+  cpl.AddField("delta_f_gids",
+               OmegaHFieldAdapter<GO>("global", mesh, is_overlap));
   APEX_NAME_TIMER_START(4, "client_main_work");
-  for(int i = 0; i < 10; i++) {
-    auto start = std::chrono::steady_clock::now();
+  do {
     APEX_NAME_TIMER_START(3, "df_step");
     APEX_NAME_TIMER_START(1, "df_send");
-    df_gid_field.Send();
+    cpl.SendField("delta_f_gids");    //(Alt) df_gid_field->Send();
     APEX_TIMER_STOP(1);
     APEX_NAME_TIMER_START(2, "df_recv");
-    df_gid_field.Receive();
+    cpl.ReceiveField("delta_f_gids"); //(Alt) df_gid_field->Receive();
     APEX_TIMER_STOP(2);
     APEX_TIMER_STOP(3);
-    test_support::getAndPrintTime(start,"dfSendRecv",rank);
-  }
+  } while (!done);
   APEX_TIMER_STOP(4);
 }
 void xgc_total_f(MPI_Comm comm, Omega_h::Mesh& mesh)
 {
-  wdmcpl::Coupler cpl("proxy_couple", wdmcpl::ProcessType::Client, comm,
-                      redev::ClassPtn{});
-  auto& total_f = cpl.AddApplication("total_f");
-  auto is_overlap_h = markMeshOverlapRegion(mesh);
-  auto& tf_gid_field = total_f.AddField<wdmcpl::GO>(
-    "gids", OmegaHGids{mesh, is_overlap_h}, OmegaHReversePartition{mesh},
-    SerializeOmegaHGids{mesh, is_overlap_h},
-    DeserializeOmegaH{mesh, is_overlap_h});
-
-  int rank; MPI_Comm_rank(comm, &rank);
-  for(int i = 0; i < 10; i++) {
-    auto start = std::chrono::steady_clock::now();
+  wdmcpl::CouplerClient cpl("proxy_couple", comm);
+  auto is_overlap = markOverlapMeshEntities(mesh);
+  cpl.AddField("total_f_gids",
+               OmegaHFieldAdapter<GO>("global", mesh, is_overlap));
+  APEX_NAME_TIMER_START(4, "client_main_work");
+  do {
     APEX_NAME_TIMER_START(3, "tf_step");
     APEX_NAME_TIMER_START(1, "tf_send");
-    tf_gid_field.Send();
+
+    cpl.SendField("total_f_gids");    //(Alt) tf_gid_field->Send();
     APEX_TIMER_STOP(1);
-    // get updated field data from coupling server
     APEX_NAME_TIMER_START(2, "tf_recv");
-    tf_gid_field.Receive();
+    cpl.ReceiveField("total_f_gids"); //(Alt) tf_gid_field->Receive();
     APEX_TIMER_STOP(2);
     APEX_TIMER_STOP(3);
-    test_support::getAndPrintTime(start,"tfSendRecv",rank);
-  }
+  } while (!done);
+  APEX_TIMER_STOP(4);
 }
-struct DeserializeServer
+void xgc_coupler(MPI_Comm comm, Omega_h::Mesh& mesh, std::string_view cpn_file)
 {
-  DeserializeServer(std::vector<wdmcpl::GO>& v) : v_(v){};
-  template <typename T>
-  void operator()(std::string_view name, nonstd::span<const T> buffer,
-                  nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    v_.resize(buffer.size());
-    for (int i = 0; i < buffer.size(); ++i) {
-      v_[i] = buffer[permutation[i]];
-    }
-  }
-
-private:
-  std::vector<wdmcpl::GO>& v_;
-};
-struct SerializeServer
-{
-  SerializeServer(std::vector<wdmcpl::GO>& v) : v_(v){};
-
-  template <typename T>
-  int operator()(std::string_view name, nonstd::span<T> buffer,
-                 nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    APEX_NAME_TIMER_START(1, "serialize_server");
-    if (buffer.size() >= 0) {
-      for (int i = 0; i < buffer.size(); ++i) {
-        buffer[permutation[i]] = v_[i];
-      }
-    }
-    APEX_TIMER_STOP(1);
-    return v_.size();
-  }
-
-private:
-  std::vector<wdmcpl::GO>& v_;
-};
-void coupler(MPI_Comm comm, Omega_h::Mesh& mesh, std::string_view cpn_file)
-{
-
-  auto cp = setupServerPartition(mesh,cpn_file);
-  wdmcpl::Coupler cpl("proxy_couple", wdmcpl::ProcessType::Server, comm, cp);
-  auto is_overlap_h = markServerOverlapRegion(mesh,cp);
-  std::vector<wdmcpl::GO> delta_f_gids;
-  std::vector<wdmcpl::GO> total_f_gids;
-  auto& total_f = cpl.AddApplication("total_f");
-  auto& delta_f = cpl.AddApplication("delta_f");
-  auto& tf_gid_field = total_f.AddField<wdmcpl::GO>(
-    "gids", OmegaHGids{mesh, is_overlap_h}, OmegaHReversePartition{mesh},
-    SerializeServer{total_f_gids}, DeserializeServer{total_f_gids});
-
-  auto& df_gid_field = delta_f.AddField<wdmcpl::GO>(
-    "gids", OmegaHGids{mesh, is_overlap_h}, OmegaHReversePartition{mesh},
-    SerializeServer{delta_f_gids}, DeserializeServer{delta_f_gids});
-  int rank; MPI_Comm_rank(comm, &rank);
+  // coupling server using same mesh as application
+  // note the xgc_coupler stores a reference to the internal mesh and it is the user
+  // responsibility to keep it alive!
+  wdmcpl::CouplerServer cpl("proxy_couple", comm,
+                            setupServerPartition(mesh, cpn_file), mesh);
+  const auto partition = std::get<redev::ClassPtn>(cpl.GetPartition());
+  auto is_overlap = markServerOverlapRegion(mesh, partition);
+  cpl.AddField("total_f_gids",
+               OmegaHFieldAdapter<GO>("total_f_gids", mesh, is_overlap),
+               FieldTransferMethod::Copy, // to Omega_h
+               FieldEvaluationMethod::None,
+               FieldTransferMethod::Copy, // from Omega_h
+               FieldEvaluationMethod::None, is_overlap);
+  cpl.AddField(
+    "delta_f_gids", OmegaHFieldAdapter<GO>("delta_f_gids", mesh, is_overlap),
+    FieldTransferMethod::Copy, FieldEvaluationMethod::None,
+    FieldTransferMethod::Copy, FieldEvaluationMethod::None, is_overlap);
+  // CombinerFunction is a functor that takes a vector of omega_h fields
+  // combines their values and sets the combined values into the resultant field
+  auto* gather =
+    cpl.AddGatherFieldsOp("cpl1", {"total_f_gids", "delta_f_gids"},
+                          "combined_gids", MeanCombiner{}, is_overlap);
+  auto* scatter = cpl.AddScatterFieldsOp(
+    "cpl1", "combined_gids", {"total_f_gids", "delta_f_gids"}, is_overlap);
+  // for case with symmetric Gather/Scatter we have
+  // auto [gather, scatter] = cpl.AddSymmetricGatherScatterOp("cpl1",
+  // {"total_f_gids", "delta_f_gids"},
+  //                      "combined_gids", MeanCombiner{});
   APEX_NAME_TIMER_START(6, "coupler_main_work");
-  for(int i = 0; i < 10; i++) {
-    auto start = std::chrono::steady_clock::now();
+  do {
     APEX_NAME_TIMER_START(5, "coupler_step");
-    APEX_NAME_TIMER_START(1, "coupler_df_recv");
-    df_gid_field.Receive();
+    //  Gather OHField
+    // 1. receives any member fields .Receive()
+    // 2. field_transfer native to internal
+    // 3. combine internal fields into combined internal field
+    APEX_NAME_TIMER_START(1, "coupler_gather");
+    gather->Run(); // alt cpl.GatherFields("cpl1")
     APEX_TIMER_STOP(1);
-    APEX_NAME_TIMER_START(2, "coupler_tf_recv");
-    tf_gid_field.Receive();
+    // Scatter OHField
+    // 1. OHField transfer internal to native
+    // 2. Send data to members
+    // cpl.ScatterFields("cpl1"); // (Alt) scatter->Run();
+    APEX_NAME_TIMER_START(2, "coupler_scatter");
+    scatter->Run(); // (Alt) cpl.ScatterFields("cpl1")
     APEX_TIMER_STOP(2);
-    APEX_NAME_TIMER_START(3, "coupler_df_send");
-    df_gid_field.Send();
-    APEX_TIMER_STOP(3);
-    APEX_NAME_TIMER_START(4, "coupler_tf_send");
-    tf_gid_field.Send();
-    APEX_TIMER_STOP(4);
     APEX_TIMER_STOP(5);
-    test_support::getAndPrintTime(start,"serverSendRecv",rank);
-  }
+  } while (!done);
   APEX_TIMER_STOP(6);
+  Omega_h::vtk::write_parallel("proxy_couple", &mesh, mesh.dim());
 }
 
 int main(int argc, char** argv)
 {
-  int provided;
-  MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-  //MPI_Init(NULL, NULL);
   auto lib = Omega_h::Library(&argc, &argv);
   auto world = lib.world();
+  Kokkos::ScopeGuard kokkos{};
   const int rank = world->rank();
   const int size = world->size();
-  //if(!rank) fprintf(stderr, "mpi provided %d\n", provided);
   if (argc != 4) {
     if (!rank) {
       std::cerr << "Usage: " << argv[0]
@@ -447,7 +297,6 @@ int main(int argc, char** argv)
   apex_init("xgc couple", rank, size);
 #endif
 
-
   OMEGA_H_CHECK(argc == 4);
   const auto clientId = atoi(argv[1]);
   REDEV_ALWAYS_ASSERT(clientId >= -1 && clientId <= 1);
@@ -458,7 +307,7 @@ int main(int argc, char** argv)
   MPI_Comm mpi_comm = lib.world()->get_impl();
   const std::string name = "meshVtxIds";
   switch (clientId) {
-    case -1: coupler(mpi_comm, mesh, classPartitionFile); break;
+    case -1: xgc_coupler(mpi_comm, mesh, classPartitionFile); break;
     case 0: xgc_delta_f(mpi_comm, mesh); break;
     case 1: xgc_total_f(mpi_comm, mesh); break;
     default:
@@ -467,9 +316,10 @@ int main(int argc, char** argv)
   }
 
 #ifdef USE_APEX
-    apex_finalize();
+  apex_finalize();
 #endif
 
   if(!rank) fprintf(stderr, "done\n");
+
   return 0;
 }

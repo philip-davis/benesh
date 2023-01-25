@@ -4,7 +4,8 @@
 #include "omegah_wrapper.h"
 #include "redev_wrapper.h"
 
-struct cpl_hdnl;
+struct cpl_hndl;
+
 struct cpl_gid_field;
 
 struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server);

@@ -7,7 +7,7 @@
 #include<vector>
 #include<chrono>
 
-#include<wdmcpl.h>
+#include<wdmcpl/wdmcpl.h>
 
 #include <Omega_h_mesh.hpp>
 
@@ -61,19 +61,27 @@ extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mes
 extern "C" void *get_mesh(struct omegah_mesh *mesh);
 
 struct cpl_hndl {
-    wdmcpl::Coupler *cpl;
+    union {
+        wdmcpl::CouplerServer *cpl_srv;
+        wdmcpl::CouplerClient *cpl_client;
+    };
     bool server;
     union {
        Omega_h::Read<Omega_h::I8> *overlap_h;
-       Omega_h::HostRead<Omega_h::I8> *srv_overlap_h; 
+       Omega_h::Read<Omega_h::I8> *srv_overlap_h; 
     };
     int64_t *buffer;
     size_t num_elem;
 };
 
 struct cpl_gid_field {
+    /*
     wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm;
     std::vector<wdmcpl::GO> gid_field;
+    */
+    ConvertibleCoupledField *field;
+    char *field_name;
+    struct cpl_hndl *cpl;
     std::vector<std::chrono::time_point<std::chrono::steady_clock>> tsendstart;
     std::vector<std::chrono::time_point<std::chrono::steady_clock>> tsendend;
     std::vector<std::chrono::time_point<std::chrono::steady_clock>> trecvstart;
@@ -83,21 +91,30 @@ struct cpl_gid_field {
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server)
 {
     auto ptn = (redev::ClassPtn *)ptnp;
+    Omega_h::Mesh *mesh = (Omega_h::Mesh *)get_mesh(meshp);
     struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
-    cpl_h->cpl = new wdmcpl::Coupler(wfname, (server ? wdmcpl::ProcessType::Server : wdmcpl::ProcessType::Client), MPI_COMM_WORLD, *ptn);
     cpl_h->server = (bool)server;
+    if(cpl_h->server) {
+        cpl_h->cpl_srv = new wdmcpl::CouplerServer(wfname, MPI_COMM_WORLD, *ptn, *mesh);
+    } else {
+        cpl_h->cpl_client = new wdmcpl::CouplerClient(wfname, MPI_COMM_WORLD);
+    }
     return(cpl_h);
 }
 
 extern "C" void close_cpl(struct cpl_hndl *cpl_h)
 {
-    delete(cpl_h->cpl);
+    if(cpl_h->server) {
+        delete(cpl_h->cpl_srv);
+    } else {
+        delete(cpl_h->cpl_client);
+    }
 }
 
 extern "C" void mark_cpl_overlap(struct cpl_hndl *cph, struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class)
 {
     if(cph->server) {
-        cph->srv_overlap_h = (Omega_h::HostRead<Omega_h::I8> *)mark_server_mesh_overlap(meshp, rptn, min_class, max_class);
+        cph->srv_overlap_h = (Omega_h::Read<Omega_h::I8> *)mark_server_mesh_overlap(meshp, rptn, min_class, max_class);
     } else {
         cph->overlap_h = (Omega_h::Read<Omega_h::I8> *)mark_mesh_overlap(meshp, min_class, max_class);
     }
@@ -106,14 +123,21 @@ extern "C" void mark_cpl_overlap(struct cpl_hndl *cph, struct omegah_mesh *meshp
 extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const char *field_name, struct cpl_hndl *cphp, struct omegah_mesh *meshp, void *field_buf)
 {
     Omega_h::Mesh *mesh = (Omega_h::Mesh *)get_mesh(meshp); 
-    auto cpl_h = (wdmcpl::Coupler *)(cphp->cpl);
-    auto &app = cpl_h->AddApplication(app_name);
+    //auto &app = cpl_h->AddApplication(app_name);
     struct cpl_gid_field *field = new struct cpl_gid_field();
 
+    field->field_name = strdup(app_name);
+    field->cpl = cphp;
+
     if(cphp->server) {
-        field->comm = &app.AddField<wdmcpl::GO>(field_name, OmegaHGids{*mesh, *cphp->srv_overlap_h}, OmegaHReversePartition{*mesh}, SerializeServer{field->gid_field}, DeserializeServer{field->gid_field});
+        auto cpl = (wdmcpl::CouplerServer *)(cphp->cpl_srv);
+        field->field = cpl->AddField(app_name, wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>(app_name, *mesh, *cphp->srv_overlap_h), wdmcpl::FieldTransferMethod::Copy,
+               wdmcpl::FieldEvaluationMethod::None,
+               wdmcpl::FieldTransferMethod::Copy,
+               wdmcpl::FieldEvaluationMethod::None, *cphp->srv_overlap_h);
     } else {
-        field->comm = &app.AddField<wdmcpl::GO>(field_name, OmegaHGids{*mesh, *cphp->overlap_h}, OmegaHReversePartition{*mesh}, SerializeOmegaHGids{*mesh, *cphp->overlap_h},  DeserializeOmegaH{*mesh, *cphp->overlap_h, NULL, NULL});
+        auto cpl = (wdmcpl::CouplerClient *)(cphp->cpl_client);
+        cpl->AddField(app_name,  wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>("global", *mesh, *cphp->overlap_h));
     }
 
     return(field);
@@ -121,20 +145,32 @@ extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const ch
 
 extern "C" void cpl_send_field(struct cpl_gid_field *field)
 {
-    wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm = field->comm;
+    struct cpl_hndl *cplh = field->cpl;
     field->tsendstart.push_back(std::chrono::steady_clock::now());
     APEX_NAME_TIMER_START(1, "field_send");
-    comm->Send();
+    if(cplh->server) {
+        wdmcpl::CouplerServer *cpl = cplh->cpl_srv;
+        cpl->SendField(field->field_name);
+    } else {
+        wdmcpl::CouplerClient *cpl = cplh->cpl_client;
+        cpl->SendField(field->field_name);
+    }
     APEX_TIMER_STOP(1);
     field->tsendend.push_back(std::chrono::steady_clock::now());
 }
 
 extern "C" void cpl_recv_field(struct cpl_gid_field *field, double **buffer, size_t *num_elem)
 {
-    wdmcpl::FieldCommunicatorT<wdmcpl::GO> *comm = field->comm;
+    struct cpl_hndl *cplh = field->cpl;
     field->trecvstart.push_back(std::chrono::steady_clock::now());
     APEX_NAME_TIMER_START(1, "field_recv");
-    field->comm->Receive();
+    if(cplh->server) {
+        wdmcpl::CouplerServer *cpl = cplh->cpl_srv;
+        cpl->ReceiveField(field->field_name);
+    } else {
+        wdmcpl::CouplerClient *cpl = cplh->cpl_client;
+        cpl->ReceiveField(field->field_name);
+    }
     APEX_TIMER_STOP(1);
     field->trecvend.push_back(std::chrono::steady_clock::now());
 }
