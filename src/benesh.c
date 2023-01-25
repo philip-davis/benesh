@@ -1060,8 +1060,15 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         ABT_mutex_lock(bnh->work_mutex);
         APEX_TIMER_STOP(1);
         schedule_target(bnh, fq_tgts[i]);
-        ABT_cond_signal(bnh->work_cond);
         ABT_mutex_unlock(bnh->work_mutex);
+    }
+    if(rule->num_tgts) {
+        APEX_NAME_TIMER_START(2, "work_signal_twa")
+        ABT_cond_signal(bnh->work_cond);
+        APEX_TIMER_STOP(2);
+        APEX_NAME_TIMER_START(3, "yield_twa");
+        ABT_thread_yield();
+        APEX_TIMER_STOP(3);
     }
     APEX_TIMER_STOP(0);
     return 0;
@@ -1187,11 +1194,17 @@ static int fini_watch(void *fini_v, void *bnh_v)
 
     ABT_mutex_lock(bnh->work_mutex);
     bnh->comp_count--;
+    ABT_mutex_unlock(bnh->work_mutex);
     if(bnh->f_debug) {
         DEBUG_OUT("Got finalize from component %i. %i remaining\n", comp_id, bnh->comp_count);
     }
+    APEX_NAME_TIMER_START(1, "signal_fwa");
     ABT_cond_signal(bnh->work_cond);
-    ABT_mutex_unlock(bnh->work_mutex);
+    APEX_TIMER_STOP(1);
+   
+    APEX_NAME_TIMER_START(2, "yield_fwa");
+    ABT_thread_yield();
+    APEX_TIMER_STOP(2);
 
     return 0;
 }
@@ -3002,6 +3015,7 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
     struct obj_sub_node *snode;
     struct work_node *sub;
     int activated = 0;
+    int signal = 0;
 
     DEBUG_OUT("activating subscribers to work item\n");
 
@@ -3054,8 +3068,8 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
                 ABT_mutex_lock(bnh->work_mutex);
                 APEX_TIMER_STOP(2);
                 benesh_make_active(bnh, sub);
-                ABT_cond_signal(bnh->work_cond);
                 ABT_mutex_unlock(bnh->work_mutex);
+                signal = 1;
                 APEX_NAME_TIMER_START(3, "db_lock_asb");
                 ABT_mutex_lock(bnh->db_mutex);
                 APEX_TIMER_STOP(3);
@@ -3065,6 +3079,14 @@ int activate_subs(struct benesh_handle *bnh, struct work_node *wnode)
         DEBUG_OUT("registry updated\n");
     }
     ABT_mutex_unlock(bnh->db_mutex);
+    if(signal) {
+        APEX_NAME_TIMER_START(4, "signal_asa");
+        ABT_cond_signal(bnh->work_cond);
+        APEX_TIMER_STOP(4);
+        APEX_NAME_TIMER_START(5, "yield_asa");
+        ABT_thread_yield();
+        APEX_TIMER_STOP(5);
+    }
     APEX_TIMER_STOP(0);
     return (activated);
 }
