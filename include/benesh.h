@@ -39,6 +39,8 @@ void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name, uint64
 
 double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name);
 
+void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name);
+
 #if defined(__cplusplus)
 }
 #endif

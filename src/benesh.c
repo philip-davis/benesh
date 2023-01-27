@@ -3809,4 +3809,39 @@ double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name)
     return (var->val);
 }
 
+void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name)
+{
+    struct wf_var *var;
+    struct wf_domain *dom;
+    const char **field_names;
+    int i;
+
+    var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
+    dom = var->dom;
+
+    if(dom->type != BNH_DOM_MESH) {
+        fprintf(stderr, "ERROR: grid unification not implmented yet.\n");
+        return;
+    }
+    
+    if(dom->comm_type == BNH_COMM_RDV_CLI) {        
+        fprintf(stderr, "WARNING: trying to unify a server comm.\n");
+        return;
+    } else if(dom->comm_type == BNH_COMM_DSP) {
+        fprintf(stderr, "WARNING: cannot unify dataspaces variables yet.\n");
+        return;
+    }
+
+    field_names = malloc(dom->subdom_count * sizeof(*field_names));
+    for(i = 0; i < dom->subdom_count; i++) {
+        if(dom->subdoms[i].comm_type == BNH_COMM_RDV_CLI) {
+            DEBUG_OUT("Adding field %s\n", dom->subdoms[i].name);
+            field_names[i] = dom->subdoms[i].name;
+        }
+    }
+
+    cpl_combine_fields(dom->cph, dom->subdom_count, field_names);
+    free(field_names);
+}
+
 #endif /* _BENESH_H_ */
