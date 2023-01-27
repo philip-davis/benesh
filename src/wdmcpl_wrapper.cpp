@@ -104,6 +104,7 @@ struct cpl_hndl {
        Omega_h::Read<Omega_h::I8> *srv_overlap_h; 
     };
     std::unordered_map<std::string, std::reference_wrapper<wdmcpl::ConvertibleCoupledField>> fields_;
+    //std::unordered_map<std::string, std::reference_wrapper<wdmcpl::InternalField>> internal_fields_;
     std::unordered_map<std::string, wdmcpl::InternalField> internal_fields_;
     Omega_h::Mesh *mesh;
     int64_t *buffer;
@@ -127,11 +128,14 @@ struct cpl_gid_field {
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server)
 {
     auto ptn = (redev::ClassPtn *)ptnp;
-    struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
+    //struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
+    struct cpl_hndl *cpl_h = new struct cpl_hndl;
     cpl_h->mesh = (Omega_h::Mesh *)get_mesh(meshp);
     cpl_h->server = (bool)server;
     if(cpl_h->server) {
         cpl_h->cpl_srv = new wdmcpl::CouplerServer(wfname, MPI_COMM_WORLD, *ptn, *cpl_h->mesh);
+        //cpl_h->fields_ = std::unordered_map<std::string, std::reference_wrapper<wdmcpl::ConvertibleCoupledField>>();
+        //cpl_h->internal_fields_ = std::unordered_map<std::string, wdmcpl::InternalField>(); 
     } else {
         cpl_h->cpl_client = new wdmcpl::CouplerClient(wfname, MPI_COMM_WORLD);
     }
@@ -161,7 +165,7 @@ extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const ch
     Omega_h::Mesh *mesh = (Omega_h::Mesh *)get_mesh(meshp); 
     //auto &app = cpl_h->AddApplication(app_name);
     struct cpl_gid_field *field = new struct cpl_gid_field();
-    
+
     field->field_name = strdup(app_name);
     field->cpl = cphp;
 
@@ -172,7 +176,8 @@ extern "C" struct cpl_gid_field *create_gid_field(const char *app_name, const ch
                wdmcpl::FieldTransferMethod::Copy,
                wdmcpl::FieldEvaluationMethod::None, *cphp->srv_overlap_h);
         cphp->fields_.insert(std::pair<std::string, std::reference_wrapper<wdmcpl::ConvertibleCoupledField>>(app_name, *field->field));
-        cphp->internal_fields_.insert(std::pair<std::string, std::reference_wrapper<wdmcpl::InternalField>>(app_name, field->field->GetInternalField()));
+        //wdmcpl::InternalField intf = field->field->GetInternalField(); 
+        cphp->internal_fields_.insert(std::pair<std::string, wdmcpl::InternalField>(std::string(app_name), wdmcpl::InternalField(field->field->GetInternalField())));
     } else {
         auto cpl = (wdmcpl::CouplerClient *)(cphp->cpl_client);
         cpl->AddField(app_name,  wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>("global", *mesh, *cphp->overlap_h));
