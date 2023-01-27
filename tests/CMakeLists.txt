@@ -37,6 +37,13 @@ target_include_directories(proxy_couple PRIVATE
 target_compile_options(proxy_couple PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(proxy_couple ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h)
 
+add_executable(xgc_proxy wdmcpl/xgc_proxy.cpp)
+target_include_directories(xgc_proxy PRIVATE
+    ${MPI_CXX_INCLUDE_PATH}
+)
+target_compile_options(xgc_proxy PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(xgc_proxy ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h Kokkos::kokkos)
+
 add_executable(heateq_adhoc heateq/heateq2d_adhoc.c heateq/heat.c)
 
 target_include_directories(heateq_adhoc PRIVATE
@@ -66,6 +73,7 @@ if(_apex_FOUND)
     target_link_libraries(heateq_adhoc_async apex)
     target_link_libraries(heateq_benesh apex)
     target_link_libraries(bredev_oh apex)
+    target_link_libraries(xgc_proxy apex)
     target_link_libraries(proxy_couple apex)
     target_link_libraries(rmbench apex)
     set(NEED_APEX "apex")
