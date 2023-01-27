@@ -132,6 +132,8 @@ struct obj_entry {
 #define BNH_SUBRULE_PUB 1
 #define BNH_SUBRULE_SUB 2
 #define BNH_SUBRULE_MTH 3
+#define BNH_SUBRULE_MPUB 4
+#define BNH_SUBRULE_MSUB 5
 
 struct var_ver {
     int var_id;
@@ -1884,6 +1886,19 @@ static int benesh_find_target(struct benesh_handle *bnh,
     return (result);
 }
 
+static int find_comp_idx_by_name(struct benesh_handle *bnh, const char *name)
+{
+    int i;
+
+    for(i = 0; i < bnh->comp_count; i++) {
+        if(strcmp(bnh->comps[i].name, name) == 0) {
+            return(i);
+        }
+    }
+
+    return(-1);
+}
+
 static int benesh_load_targets(struct benesh_handle *bnh)
 {
     struct xc_list_node **tgtnodes, *node, *arg_node, *pnode, *vvnode;
@@ -1893,6 +1908,7 @@ static int benesh_load_targets(struct benesh_handle *bnh)
     struct xc_target *tgt;
     struct xc_expr *expr;
     struct xc_minst *minst;
+    struct xc_obj_fusion *fus;
     struct xc_vmap *vmap;
     struct xc_varver *vv;
     int tgt_len;
@@ -1950,7 +1966,10 @@ static int benesh_load_targets(struct benesh_handle *bnh)
         wtgt->num_subrules = 0;
         for(node = tgt->procedure; node; node = node->next) {
             expr = node->decl;
-            if(expr->type == XC_EXPR_XFR) {
+            if(expr->type == XC_EXPR_MXFR) {
+                // two pubs and a sub
+                wtgt->num_subrules += 3;
+            }else if(expr->type == XC_EXPR_XFR) {
                 // A pub and a sub
                 wtgt->num_subrules += 2;
             } else {
@@ -2049,14 +2068,8 @@ static int benesh_load_targets(struct benesh_handle *bnh)
                             "ERROR: unimplemented source transformation.\n");
                     break;
                 }
-                for(k = 0, found = 0; k < bnh->comp_count; k++) {
-                    if(strcmp(bnh->comps[k].name, comp_name) == 0) {
-                        found = 1;
-                        wtgt->subrule[j].comp_id = k;
-                        break;
-                    }
-                }
-                if(!found) {
+                wtgt->subrule[j].comp_id = find_comp_idx_by_name(bnh, comp_name);
+                if(wtgt->subrule[j].comp_id == -1) {
                     fprintf(stderr, "ERROR: unknown component for source.\n");
                 }
                 var_str = (char *)arg_node->next->decl;
@@ -2080,12 +2093,20 @@ static int benesh_load_targets(struct benesh_handle *bnh)
                     }
                 }
                 if(!found) {
-                    fprintf(stderr, "ERROR: unknown component for source.\n");
+                    fprintf(stderr, "ERROR: unknown component for target.\n");
                 }
                 var_str = (char *)arg_node->next->decl;
                 get_ifvar(bnh, var_str, wtgt->subrule[j].comp_id,
                           &wtgt->subrule[j].var_id);
                 break;
+            case XC_EXPR_MXFR:
+                wtgt->subrule[j].type = BNH_SUBRULE_PUB;
+                fus = expr->msrc;
+                comp_name = fus->first->decl;
+                wtgt->subrule[j].comp_id = find_comp_idx_by_name(bnh, comp_name); 
+                if(wtgt->subrule[j].comp_id == -1) {
+                    fprintf(stderr, "ERROR: unknown component '%s' for first source.\n", comp_name);
+                }
             }
         }
     }
