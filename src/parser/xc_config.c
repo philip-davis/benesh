@@ -938,6 +938,7 @@ struct xc_expr *xc_new_expr(void *left, void *right, xc_expr_t type)
 {
     struct xc_expr *expr = malloc(sizeof(*expr));
 
+    //TODO: should be a switch statement to guarantee alignemnt of union
     expr->type = type;
     expr->lhs = left;
     expr->rhs = right;
@@ -984,6 +985,20 @@ struct xc_vmap *xc_new_vmap(const char *param, struct xc_list_node *vals)
     vmap->vals = vals;
 
     return (vmap);
+}
+
+struct xc_obj_fusion *xc_new_obj_fusion(struct xc_minst *first, struct xc_minst *second)
+{
+    struct xc_obj_fusion *fus;
+    struct xc_conf_method *meth1, *meth2;
+    meth1 = first->method;
+    meth2 = second->method;
+    if(first->type == XC_MINST_G && second->type == XC_MINST_G &&
+            strcmp(meth1->name, "identity") && strcmp(meth2->name, "identity")) {
+        fus = malloc(sizeof(*fus));
+        fus->first = first->args;
+        fus->second = second->args;
+    }     
 }
 
 int xc_unify_method(struct xc_list_node *list, struct xc_list_node *mobj)

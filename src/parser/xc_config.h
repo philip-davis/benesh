@@ -183,7 +183,7 @@ struct xc_minst {
     struct xc_list_node *params;
 };
 
-typedef enum xc_expr_t { XC_EXPR_METHOD, XC_EXPR_ASG, XC_EXPR_XFR } xc_expr_t;
+typedef enum xc_expr_t { XC_EXPR_METHOD, XC_EXPR_ASG, XC_EXPR_XFR, XC_EXPR_MXFR } xc_expr_t;
 
 struct xc_expr {
     xc_expr_t type;
@@ -195,6 +195,7 @@ struct xc_expr {
     union {
         struct xc_pqexpr *rhs;
         struct xc_minst *src;
+        struct xc_obj_fusion *msrc;
     };
 };
 
@@ -213,6 +214,11 @@ struct xc_varver {
 struct xc_vmap {
     const char *param;
     struct xc_list_node *vals;
+};
+
+struct xc_obj_fusion {
+    struct xc_list_node *first;
+    struct xc_list_node *second;    
 };
 
 void xc_conf_append(struct xc_config *conf, struct xc_list_node *node);
@@ -259,6 +265,7 @@ struct xc_tprule *xc_new_tprule(struct xc_component *comp,
                                 struct xc_list_node *obj);
 struct xc_varver *xc_new_varver(const char *var_name, struct xc_list_node *ver);
 struct xc_vmap *xc_new_vmap(const char *param, struct xc_list_node *vals);
+struct xc_obj_fusion *xc_new_obj_fusion(struct xc_minst *first, struct xc_minst *second);
 
 int xc_unify_method(struct xc_list_node *list, struct xc_list_node *mobj);
 int xc_unify_target(struct xc_list_node *tgt, struct xc_list_node *real,

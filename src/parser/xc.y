@@ -952,6 +952,11 @@ tfrexpr :
     objtransform '<' objtransform {
         $$ = xc_new_expr($1, $3, XC_EXPR_XFR);
     }
+    |
+    objtransform '<' objtransform '+' objtransform {
+        struct xc_obj_fusion *rhs = xc_new_obj_fusion($3, $5);
+        $$ = xc_new_expr($1, rhs, XC_EXPR_MXFR);
+    }
     ;
 
 objtransform:
