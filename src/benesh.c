@@ -3531,7 +3531,7 @@ int cpl_add_fields(struct benesh_handle *bnh, struct wf_domain *dom,
         if(dom_list[i].comm_type == BNH_COMM_RDV_CLI &&
            same_root_domain(dom, &dom_list[i])) {
             DEBUG_OUT("adding field %s for app %s\n", "gid", dom->name);
-            dom_list[i].field = create_gid_field(dom_list[i].name, "gid", dom->cph, dom->mesh, NULL);
+            //dom_list[i].field = create_gid_field(dom_list[i].name, "gid", dom->cph, dom->mesh, NULL);
             DEBUG_OUT("created field %p\n", (void *)(dom_list[i].field));
             pos++;
             count++;
@@ -3559,8 +3559,8 @@ int allocate_rdvs(struct benesh_handle *bnh, struct wf_domain *dom,
             DEBUG_OUT("rdv server establishing communication on domain '%s'\n",
                       dom_list[i].full_name);
             //dom_list[i].rdv = malloc(sizeof(*dom_list[i].rdv));
-            dom_list[i].rdv = new_rdv_comm_ptn(
-                &bnh->mycomm, dom_list[i].full_name, 1, dom->rptn);
+            //dom_list[i].rdv = new_rdv_comm_ptn(
+            //    &bnh->mycomm, dom_list[i].full_name, 1, dom->rptn);
             pos++;
             count++;
         }
@@ -3602,7 +3602,7 @@ void update_layouts(struct benesh_handle *bnh, struct wf_domain *dom,
 
     for(i = 0; i < dom_count; i++) {
         if(dom_list[i].comm_type == BNH_COMM_RDV_CLI && same_root_domain(dom, &dom_list[i])) {
-            rdv_layout(dom_list[i].rdv, dom->rdv_dst_count, dom->rdv_dest, dom->rdv_offset);
+            //rdv_layout(dom_list[i].rdv, dom->rdv_dst_count, dom->rdv_dest, dom->rdv_offset);
         }
         if(dom_list[i].subdom_count) {
             update_layouts(bnh, dom, dom_list[i].subdoms, dom_list[i].subdom_count);
@@ -3652,9 +3652,9 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
     dom->mesh = new_oh_mesh(grid_file);
     dom->rptn = create_oh_partition(dom->mesh, cpn_file);
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
-        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 0); 
+        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 0, bnh->mycomm); 
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
-        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 1);
+        dom->cph = create_cpl_hndl("proxy_couple", dom->mesh, dom->rptn, 1, bnh->mycomm);
     } else {
         fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
         return (-1);
@@ -3669,11 +3669,11 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
 
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
         DEBUG_OUT("creating field %s for app %s.\n", "gid", dom->name);
-        dom->field = create_gid_field(dom->name, "gid", dom->cph, dom->mesh, NULL);
+        //dom->field = create_gid_field(dom->name, "gid", dom->cph, dom->mesh, NULL);
         DEBUG_OUT("created field %p\n", (void *)dom->field);
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
         DEBUG_OUT("server creating fields\n");
-        cpl_add_fields(bnh, dom, bnh->doms, bnh->dom_count, 0);
+        //cpl_add_fields(bnh, dom, bnh->doms, bnh->dom_count, 0);
 
     }
     nverts = get_mesh_nverts(dom->mesh);
@@ -3840,7 +3840,7 @@ void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name)
         }
     }
 
-    cpl_combine_fields(dom->cph, dom->subdom_count, field_names);
+    //cpl_combine_fields(dom->cph, dom->subdom_count, field_names);
     free(field_names);
 }
 

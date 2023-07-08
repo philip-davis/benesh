@@ -1,14 +1,18 @@
 #ifndef __BNH_CPL_WRAPPER_H_
 #define __BNH_CPL_WRAPPER_H_
 
+#include <mpi.h>
 #include "omegah_wrapper.h"
 #include "redev_wrapper.h"
+#include "wrapper_common.h"
 
 struct cpl_hndl;
 
+struct field_adapter;
+
 struct cpl_gid_field;
 
-struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server);
+struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server, MPI_Comm comm);
 
 void close_cpl(struct cpl_hndl *cpl_h);
 

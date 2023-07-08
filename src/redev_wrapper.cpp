@@ -24,7 +24,7 @@ static void timeMinMaxAvg(double time, double &min, double &max, double &avg)
     MPI_Allreduce(&time, &tot, 1, MPI_DOUBLE, MPI_SUM, comm);
     avg = tot / nproc;
 }
-
+/*
 extern "C" struct rdv_comm *new_rdv_comm(MPI_Comm *comm, const int rdvRanks,
                                          int isRdv)
 {
@@ -109,3 +109,4 @@ extern "C" void rdv_recv(struct rdv_comm *comm, int rank, void **buffer, size_t 
     if(!rank)
         printTime(str, min, max, avg);
 }
+*/

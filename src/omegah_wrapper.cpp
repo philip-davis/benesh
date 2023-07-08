@@ -180,16 +180,18 @@ extern "C" void get_omegah_layout(struct omegah_mesh *mesh,
 }
 
 static OMEGA_H_DEVICE Omega_h::I8 isModelEntInOverlap(const int dim,
-                                                      const int id)
+                                                      const int id, 
+                                                      const int min_class,
+                                                      const int max_class)
 {
     // the TOMMS generated geometric model has
     // entity IDs that increase with the distance
     // from the magnetic axis
-    if(dim == 2 && (id >= 22 && id <= 34)) {
+    if(dim == 2 && (id >= min_class && id <= max_class)) {
         return 1;
-    } else if(dim == 1 && (id >= 21 && id <= 34)) {
+    } else if(dim == 1 && (id >= min_class && id <= min_class)) {
         return 1;
-    } else if(dim == 0 && (id >= 21 && id <= 34)) {
+    } else if(dim == 0 && (id >= min_class && id <= max_class)) {
         return 1;
     }
     return 0;
@@ -204,7 +206,7 @@ extern "C" struct omegah_array *mark_mesh_overlap(struct omegah_mesh *mesh, int 
 
     auto markOverlap = OMEGA_H_LAMBDA(int i)
     {
-        isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i]);
+        isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i], min_class, max_class);
     };
     Omega_h::parallel_for(classIds.size(), markOverlap);
     auto isOwned = mesh->mesh.owned(0);
@@ -233,7 +235,7 @@ extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mes
     auto isOverlap = Omega_h::Write<Omega_h::I8>(classIds.size(), "isOverlap");
     auto markOverlap = OMEGA_H_LAMBDA(int i)
     {
-        isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i]);
+        isOverlap[i] = isModelEntInOverlap(classDims[i], classIds[i], min_class, max_class);
     };
     Omega_h::parallel_for(classIds.size(), markOverlap);
     auto owned_h = Omega_h::HostRead(mesh->mesh.owned(0));

@@ -1,0 +1,12 @@
+#ifndef _BNH_WRAPPER_COMMON_H
+#define _BNH_WRAPPER_COMMON_H
+
+enum bnh_data_type
+{
+  BNH_CPL_FLOAT,
+  BNH_CPL_DOUBLE,
+  BNH_CPL_INT,
+  BNH_CPL_LONG_INT
+};
+
+#endif /* _BNH_WRAPPER_COMMON_H */
