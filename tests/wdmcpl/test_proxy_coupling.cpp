@@ -233,6 +233,7 @@ void xgc_coupler(MPI_Comm comm, Omega_h::Mesh& mesh, std::string_view cpn_file)
                             setupServerPartition(mesh, cpn_file), mesh);
   const auto partition = std::get<redev::ClassPtn>(cpl.GetPartition());
   auto is_overlap = markServerOverlapRegion(mesh, partition);
+  /*
   cpl.AddField("total_f_gids",
                OmegaHFieldAdapter<GO>("total_f_gids", mesh, is_overlap),
                FieldTransferMethod::Copy, // to Omega_h
@@ -275,6 +276,7 @@ void xgc_coupler(MPI_Comm comm, Omega_h::Mesh& mesh, std::string_view cpn_file)
   } while (!done);
   APEX_TIMER_STOP(6);
   Omega_h::vtk::write_parallel("proxy_couple", &mesh, mesh.dim());
+  */
 }
 
 int main(int argc, char** argv)

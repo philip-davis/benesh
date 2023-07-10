@@ -3423,6 +3423,10 @@ int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf)
     return(0);
 }
 
+void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int *idx, unsigned int idx_len)
+{
+}
+
 static int same_root_domain(struct wf_domain *dom1, struct wf_domain *dom2)
 {
     char *name1, *name2;

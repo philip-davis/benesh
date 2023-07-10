@@ -21,6 +21,8 @@ int benesh_bind_method(struct benesh_handle *bnh, const char *name,
 
 int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf);
 
+void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int *idx, unsigned int idx_len);
+
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                             double *grid_offset, double *grid_dims,
                             uint64_t *grid_points, int alloc);

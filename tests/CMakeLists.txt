@@ -20,6 +20,12 @@ target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
 add_executable(bredev_oh omegah/test_twoClientOverlap.cpp)
 
 add_executable(rmbench redev/rmbench.c)
+target_include_directories(rmbench  PRIVATE
+                           ${MPI_CXX_INCLUDE_PATH})
+target_compile_options(rmbench PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(rmbench PRIVATE
+                      ${MPI_CXX_LIBRARIES}
+                      ${MPI_CDX_LINK_FLAGS})
 
 set_property(TARGET bredev_oh PROPERTY CXX_STANDARD 20)
 
@@ -37,12 +43,12 @@ target_include_directories(proxy_couple PRIVATE
 target_compile_options(proxy_couple PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(proxy_couple ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h)
 
-add_executable(xgc_proxy wdmcpl/xgc_proxy.cpp)
-target_include_directories(xgc_proxy PRIVATE
-    ${MPI_CXX_INCLUDE_PATH}
-)
-target_compile_options(xgc_proxy PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(xgc_proxy ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h Kokkos::kokkos)
+#add_executable(xgc_proxy wdmcpl/xgc_proxy.cpp)
+#target_include_directories(xgc_proxy PRIVATE
+#    ${MPI_CXX_INCLUDE_PATH}
+#)
+#target_compile_options(xgc_proxy PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+#target_link_libraries(xgc_proxy ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h Kokkos::kokkos)
 
 add_executable(heateq_adhoc heateq/heateq2d_adhoc.c heateq/heat.c)
 
@@ -67,6 +73,18 @@ target_include_directories(heateq_benesh PRIVATE
 )
 target_compile_options(heateq_benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(heateq_benesh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+
+add_executable(n0_coupler wdm/n0_coupling_server.cpp wdm/test_support.cpp)
+target_include_directories(n0_coupler PRIVATE
+    ${MPI_CXX_INCLUDE_PATH}
+)
+target_compile_options(n0_coupler PRIVATE ${MPI_CXX_COMPILE_FLAGS})
+target_link_libraries(n0_coupler ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h)
+
+add_executable(xgc_test wdm/xgc_test.f90)
+target_compile_options(xgc_test PRIVATE ${MPI_Fortran_COMPILE_FLAGS})
+target_link_libraries(xgc_test ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh_fortran)
+
 if(_apex_FOUND)
     add_definitions(-DUSE_APEX)
     target_link_libraries(heateq_adhoc apex)
@@ -79,6 +97,6 @@ if(_apex_FOUND)
     set(NEED_APEX "apex")
 endif()
 
-install(TARGETS heateq_adhoc heateq_adhoc_async heateq_benesh bredev_oh proxy_couple rmbench
+install(TARGETS heateq_adhoc heateq_adhoc_async heateq_benesh rmbench n0_coupler xgc_test
   DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
