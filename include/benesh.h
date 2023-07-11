@@ -23,6 +23,10 @@ int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf);
 
 void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int *idx, unsigned int idx_len);
 
+void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, int idx, const char *rcn_file, MPI_Comm comm, void *buffer, int length);
+
+void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, int idx);
+
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                             double *grid_offset, double *grid_dims,
                             uint64_t *grid_points, int alloc);

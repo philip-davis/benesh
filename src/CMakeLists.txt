@@ -4,7 +4,7 @@ add_subdirectory(parser)
 include (CMakePackageConfigHelpers)
 
 # where to install files for "find_package"
-set (benesh-pkg "share/cmake/dspaces")
+set (benesh-pkg "share/cmake/benesh")
 
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
 #set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fno-omit-frame-pointer -fsanitize=address")
@@ -18,7 +18,8 @@ add_library(benesh
 )
 
 target_include_directories(benesh PRIVATE
-                           ${MPI_CXX_INCLUDE_PATH})
+                           ${MPI_CXX_INCLUDE_PATH}
+                           ${CMAKE_CURRENT_SOURCE_DIR}/parser)
 target_compile_options(benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(benesh PRIVATE
                       ${MPI_CXX_LIBRARIES} 
@@ -51,3 +52,28 @@ install(TARGETS benesh
 
 install (FILES "${CMAKE_CURRENT_BINARY_DIR}/benesh.pc"
     DESTINATION "lib/pkgconfig/")
+
+#
+# installation stuff (packaging and install commands)
+#
+write_basic_package_version_file(
+    "benesh-config-version.cmake"
+    VERSION ${benesh_VERSION}
+    COMPATIBILITY AnyNewerVersion)
+
+# generate our config file for find_package()
+configure_file (benesh-config.cmake.in benesh-config.cmake @ONLY)
+
+#
+# "make install" rules
+#
+install (TARGETS benesh EXPORT benesh-targets
+         ARCHIVE DESTINATION lib
+         LIBRARY DESTINATION lib)
+install (EXPORT benesh-targets NAMESPACE benesh::
+         DESTINATION ${benesh-pkg}
+         FILE "benesh-targets.cmake")
+install (FILES "${CMAKE_CURRENT_BINARY_DIR}/benesh-config.cmake"
+               "${CMAKE_CURRENT_BINARY_DIR}/benesh-config-version.cmake"
+               "../cmake/xpkg-import.cmake"
+         DESTINATION ${benesh-pkg} )

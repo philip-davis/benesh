@@ -3427,6 +3427,14 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
 {
 }
 
+void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, int idx, const char *rcn_file, MPI_Comm comm, void *buffer, int length)
+{
+}
+
+void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, int idx)
+{
+}
+
 static int same_root_domain(struct wf_domain *dom1, struct wf_domain *dom2)
 {
     char *name1, *name2;

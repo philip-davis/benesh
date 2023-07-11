@@ -20,7 +20,7 @@ add_library(parser
             xc_config.c
 )
 
-target_include_directories(parser PUBLIC
+target_include_directories(parser PRIVATE
                            ${MPI_C_INCLUDE_PATH}
                            ${CMAKE_CURRENT_SOURCE_DIR}
                            ${CMAKE_CURRENT_BINARY_DIR}
@@ -30,7 +30,7 @@ set_target_properties(parser PROPERTIES
   C_STANDARD 99
 )
 
-install(TARGETS parser
+install(TARGETS parser EXPORT benesh-targets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
 )
