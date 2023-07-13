@@ -30,23 +30,23 @@ contains
         call benesh_fini_f2c(handle%handle)
     end subroutine
 
-    subroutine benesh_bind_field_mpient(handle, name, index, rcn_file, comm, buffer, length, field)
+    subroutine benesh_bind_field_mpient(handle, name, index, rcn_file, comm, buffer, length, participates, field)
         type(benesh_app_id), intent(in) :: handle
         character*(*), intent(in) :: name, rcn_file
-        integer, intent(in) :: index, comm, length
+        integer, intent(in) :: index, comm, length, participates
         type(C_PTR), intent(in) :: buffer
         type(C_PTR), intent(out) :: field
 
-        call benesh_bind_field_mpient_f2c(handle%handle, name, index, rcn_file, comm, buffer, length, field)
+        call benesh_bind_field_mpient_f2c(handle%handle, name, index, rcn_file, comm, buffer, length, participates, field)
     end subroutine
 
-    subroutine benesh_bind_field_dummy(handle, name, index, field)
+    subroutine benesh_bind_field_dummy(handle, name, index, participates, field)
         type(benesh_app_id), intent(in) :: handle
-        integer, intent(in) :: index
+        integer, intent(in) :: index, participates
         character*(*), intent(in) :: name
         type(C_PTR), intent(out) :: field
         
-        call benesh_bind_field_dummy_f2c(handle%handle, name, index, field)
+        call benesh_bind_field_dummy_f2c(handle%handle, name, index, participates, field)
     end subroutine
 
     subroutine benesh_tpoint(handle, name)
