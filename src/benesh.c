@@ -48,6 +48,12 @@
         }                                                                      \
     } while(0);
 
+#define DUMMY_OUT(retval) \
+    do { \
+        if(bnh->dummy) { \
+            return retval; \
+        } \
+    } while(0);
 
 #define BNH_DOM_GRID 1
 #define BNH_DOM_MESH 2
@@ -73,7 +79,6 @@ struct wf_domain {
     uint32_t *rdv_offset;
     struct rdv_ptn *rptn;
     struct cpl_hndl *cph;
-    struct cpl_gid_field *field;
     size_t rdv_count;
     int type;
     int comm_type;
@@ -200,6 +205,9 @@ struct wf_component {
     char *app;
     char *name;
     struct rdv_comm *rdv;
+    struct app_hndl *cpl_apph;
+    int recv_phase_open;
+    int send_phase_open;
     int size;
     int isme;
 };
@@ -221,6 +229,7 @@ struct wf_var {
     };
     struct wf_domain *dom;
     struct xc_int_hash_map *versions;
+    struct field_handle *field;
     int comp_id;
     int comm_type;
 };
@@ -265,9 +274,14 @@ struct benesh_handle {
     struct wf_domain *doms;
     dspaces_client_t dsp;
     int rdvRanks;
-
     int ready;
     int f_debug;
+
+    int dummy;
+    struct wf_domain *dummy_dom;
+    struct wf_component *dummy_comp;
+    struct wf_var *dummy_vars;
+    int num_dummy_vars;
 };
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
@@ -275,6 +289,7 @@ static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
 static int match_target_rule(struct xc_list_node *obj, struct wf_target *tgt);
 static int match_target_rule_fq(struct pq_obj *obj, struct wf_target *tgt,
                                 char ***map);
+struct wf_domain *match_domain(struct benesh_handle *bnh, const char *dom_name);
 void print_work_node(FILE *stream, struct benesh_handle *bnh,
                      struct work_node *wnode);
 void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
@@ -287,6 +302,17 @@ struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
 struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
                          int comp_id, int *var_id);
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
+
+char *itoa(int val, int base)
+{
+	static char buf[32] = {0};
+	int i = 30;
+	
+    for(; val && i ; --i, val /= base)
+		buf[i] = "0123456789abcdef"[val % base];
+	return &buf[i+1];
+}
+
 
 struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
                            int nmappings, char **map_names, int64_t *vals)
@@ -2135,6 +2161,12 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
         bnh->f_debug = 1;
     }
 
+    if(gcomm == MPI_COMM_NULL) {
+        bnh->mycomm = gcomm;
+        bnh->dummy = 1;
+        return(0);
+    }
+
     if(envna) {
         DEBUG_OUT("using '%s' for NA string\n", envna);
         na = strdup(envna);
@@ -2771,7 +2803,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_component *dst_comp = &bnh->comps[srule->comp_id];
     struct wf_domain *src_dom = src_var->dom;
     struct wf_domain *dst_dom = dst_var->dom;
-    struct cpl_gid_field *field;
+    struct field_handle *field;
     double *goff_lb, *goff_ub;
 
     if(src_dom->comm_type == BNH_COMM_RDV_SRV ||
@@ -2781,7 +2813,12 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
                   (void *)dst_comp->rdv, src_dom->l_grid_pts[0],
                   src_var->buf_size);
         */
-        field = src_dom->comm_type == BNH_COMM_RDV_SRV ? dst_dom->field : src_dom->field;
+        if(dst_comp->send_phase_open == 0) {
+            app_begin_send_phase(dst_comp->cpl_apph);
+            dst_comp->send_phase_open = 1;
+        }
+        //field = src_dom->comm_type == BNH_COMM_RDV_SRV ? dst_dom->field : src_dom->field;
+        field = src_var->field;
         DEBUG_OUT("sending %s on %s using cpl %p\n", src_var->name, src_dom->full_name, field);
         //rdv_send(src_dom->rdv, bnh->rank, src_var->buf);
         cpl_send_field(field);
@@ -2830,28 +2867,25 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
         &wnode->tgt->subrule[wnode->subrule - 2]; // subrules start at 1
     struct wf_component *src_comp = &bnh->comps[prule->comp_id];
     struct sub_rule *srule = &tgt->subrule[wnode->subrule - 1];
+    struct wf_component *dst_comp = &bnh->comps[srule->comp_id];
     struct wf_var *dst_var = &bnh->ifvars[srule->var_id];
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_domain *src_dom = src_var->dom;
     struct wf_domain *dst_dom = dst_var->dom;
-    struct cpl_gid_field *field;
+    struct field_handle *field;
     size_t num_elem;
 
-    if(dst_var->buf) {
-        free(dst_var->buf);
-        dst_var->buf = NULL;
+    if(src_comp->recv_phase_open == 0) {
+        app_begin_recv_phase(dst_comp->cpl_apph);
+        src_comp->recv_phase_open = 1;
     }
-    field = (dst_dom->comm_type == BNH_COMM_RDV_SRV) ? src_dom->field : dst_dom->field;
+    field = dst_var->field;
+    //field = (dst_dom->comm_type == BNH_COMM_RDV_SRV) ? src_dom->field : dst_dom->field;
     DEBUG_OUT("receiving from comp %i with cpl %p\n", prule->comp_id,
               (void *)field);
-    cpl_recv_field(field, (double **)&dst_var->buf, &num_elem);
+    cpl_recv_field(field);
     //rdv_recv(src_dom->rdv, bnh->rank, &dst_var->buf, &num_elem);
-    dst_var->buf_size = num_elem;
-    if(dst_var->type == BNH_TYPE_INT) {
-        dst_var->buf_size *= 4;
-    } else if(dst_var->type == BNH_TYPE_FP) {
-        dst_var->buf_size *= 8;
-    }
+    
     return (1);
 }
 
@@ -2974,7 +3008,6 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct work_node *link;
 
-    DEBUG_OUT("handling work node %p with type %i\n", (void *)wnode, wnode->type);
 
     APEX_FUNC_TIMER_START(handle_work);
     switch(wnode->type) {
@@ -3114,6 +3147,27 @@ void announce_work(struct benesh_handle *bnh, struct work_node *wnode)
     APEX_TIMER_STOP(1);
 }
 
+static void benesh_end_phases(struct benesh_handle *bnh)
+{
+    struct wf_component *comp;
+    int i;
+
+    for(i = 0; i < bnh->comp_count; i++) {
+        comp = &bnh->comps[i];
+        if(i == bnh->comp_id) {
+            continue;
+        }
+        if(comp->recv_phase_open) {
+            app_end_recv_phase(comp->cpl_apph);
+            comp->recv_phase_open = 0;
+        }
+        if(comp->send_phase_open) {
+            app_end_send_phase(comp->cpl_apph);
+            comp->send_phase_open = 0;
+        }
+    }
+}
+
 void benesh_handle_work(struct benesh_handle *bnh)
 {
     struct work_node *wnode;
@@ -3168,6 +3222,8 @@ void benesh_handle_work(struct benesh_handle *bnh)
                 break;
             case BNH_WORK_CHAIN:
                 DEBUG_OUT("cleanup from chain completion\n");
+                //TODO: make graceful - should be scheduled as a result of starting a phase
+                benesh_end_phases(bnh);
                 break;
             }
 
@@ -3304,6 +3360,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     APEX_TIMER_STOP(0);
 }
 
+/*
 static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
 {
     int i;
@@ -3317,6 +3374,7 @@ static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain *dom_
         }
     }
 }
+*/
 
 void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
 {
@@ -3349,7 +3407,7 @@ int benesh_fini(struct benesh_handle *bnh)
     }
     DEBUG_OUT("all peers components finished\n");
     MPI_Barrier(bnh->mycomm);
-    report_cpl_timings(bnh, bnh->doms, bnh->dom_count);
+    //report_cpl_timings(bnh, bnh->doms, bnh->dom_count);
     close_cpls(bnh, bnh->doms, bnh->dom_count);
     if(bnh->rank == 0) {
         //dspaces_kill(bnh->dsp);
@@ -3388,6 +3446,8 @@ int benesh_bind_method(struct benesh_handle *bnh, const char *name,
 {
     int i;
 
+    DUMMY_OUT(0);
+
     for(i = 0; i < bnh->mth_count; i++) {
         if(strcmp(bnh->mths[i].name, name) == 0) {
             bnh->mths[i].method = method;
@@ -3400,24 +3460,39 @@ int benesh_bind_method(struct benesh_handle *bnh, const char *name,
     return (-1);
 }
 
-int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf)
+static struct wf_var *match_local_ifvar(struct benesh_handle *bnh, const char *var_name)
 {
     struct wf_var *var;
-    int i;
-    int found = 0;
+    int i, found;
 
+    found = 0;
     for(i = 0; i < bnh->ifvar_count; i++) {
         var = &bnh->ifvars[i];
         if(var->comp_id == bnh->comp_id && strcmp(var->name, var_name) == 0) {
-            var->buf = buf;
             found = 1;
             break;
         }
     }
 
     if(!found) {
-        fprintf(stderr,"WARNING: trying to bind unknown interface variable '%s'.\n", var_name);
-        return(1);
+        fprintf(stderr,"WARNING: trying to locate unknown interface variable '%s'.\n", var_name);
+        return(NULL);
+    }
+
+    return(var);
+} 
+
+int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf)
+{
+    struct wf_var *var;
+
+    DUMMY_OUT(0);
+
+    var = match_local_ifvar(bnh, var_name);
+    if(var) {
+        var->buf = buf;
+    } else {
+        return(-1);
     }
 
     return(0);
@@ -3425,14 +3500,197 @@ int benesh_bind_var(struct benesh_handle *bnh, const char *var_name, void *buf)
 
 void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int *idx, unsigned int idx_len)
 {
+    char *tmp_vname;
+    char *app_name;
+    char *num_str, *field_name, *adapt_name;
+    struct wf_component *comp;
+    struct wf_var *var;
+    struct field_adapter *adpt;
+    struct wf_domain *dom;
+    int i;
+    int found = 0;
+
+    DUMMY_OUT(0);
+
+    if(idx_len > 1) {
+        fprintf(stderr, "ERROR: one or zero variable index integers permitted for now.\n");
+        return(NULL);
+    }
+    
+    tmp_vname = strdup(var_name);
+    app_name = strchr(tmp_vname, '.');
+    if(app_name) {
+        *app_name = '\0';
+        app_name++;    
+    } else {
+        fprintf(stderr, "ERROR: mesh variables must indicate parnter component, for now.\n");
+        return(NULL);
+    }
+
+    for(i = 0; i < bnh->comp_count; i++) {
+        comp = &bnh->comps[i];
+        if(strcmp(comp->app, app_name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    if(!found) {
+        fprintf(stderr, "ERROR: could not find workflow component named '%s'\n", app_name);
+    }
+
+    var = match_local_ifvar(bnh, var_name);
+    if(var) {
+        dom = var->dom;
+    } else {
+        return(NULL);
+    }
+
+    if(idx_len == 1) {
+        num_str = itoa(idx[0], 10);
+        field_name = malloc(strlen(tmp_vname) + strlen(num_str) + 2);
+        sprintf(field_name, "%s_%s", tmp_vname, num_str);   
+    } else {
+        field_name = tmp_vname;
+    }
+    adapt_name = malloc(strlen(app_name) + strlen(field_name) + 2);
+    sprintf(adapt_name, "%s/%s", app_name, field_name);
+
+    //TODO data type
+    adpt = create_omegah_adapter(comp->cpl_apph, adapt_name, dom->mesh, BNH_CPL_DOUBLE);
+    var->field = cpl_add_field(dom->cph, app_name, field_name, 1);
+
+    if(idx_len == 1) {
+        free(field_name);
+    }
+    free(adapt_name);
+    free(tmp_vname);
+
+    return(cpl_get_field_ptr(var->field));
 }
 
-void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, int idx, const char *rcn_file, MPI_Comm comm, void *buffer, int length)
+// TODO: do internally based on configuration - tricky if supporting dummy handles
+int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
 {
+    struct wf_domain *dom;
+    struct wf_component *comp;
+
+    if(bnh->dummy) {
+        dom = malloc(sizeof(*dom));
+        dom->type = BNH_DOM_MESH;
+        dom->comm_type = BNH_COMM_RDV_CLI;
+        comp = malloc(sizeof(*comp));
+        bnh->dummy_dom = dom;
+        bnh->dummy_comp = comp;
+    } else {
+        dom = match_domain(bnh, dom_name);
+        comp = &bnh->comps[bnh->comp_id];
+    }
+    if(dom->type != BNH_DOM_MESH) {
+        fprintf(stderr,
+                "ERROR: binding a field to grid '%s' is not implemented yet.\n",
+                dom_name);
+        return (-1);
+    }
+
+    //TODO wfname
+    if(dom->comm_type == BNH_COMM_RDV_CLI) {
+        dom->cph = create_cpl_hndl("xgc_n0_coupling", NULL, NULL, 0, bnh->mycomm);
+        comp->cpl_apph = add_application(dom->cph, "server", "");
+    } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
+        fprintf(stderr, "ERROR: raw field domain binding not supported on servers yet.\n");
+        return(-1);
+    } else {
+        fprintf(stderr, "ERROR: raw field domain binding requires rendezvous transport.\n");
+        return(-1);
+    }
+    
+    return(0); 
 }
 
-void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, int idx)
+// TODO support server
+void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, int idx, const char *rcn_file, MPI_Comm comm, void *buffer, int length, int participates)
 {
+    struct wf_domain *dom;
+    struct wf_var *var;
+    struct wf_component *comp;
+    struct field_adapter *adpt;
+    struct rcn_handle *rcn;
+    char *field_name, *num_str;
+    int i, found;
+
+    if(bnh->dummy) {
+        bnh->dummy_vars = realloc(bnh->dummy_vars,
+                (bnh->num_dummy_vars+1) * sizeof(*bnh->dummy_vars));
+        var = &bnh->dummy_vars[bnh->num_dummy_vars++];
+        dom = bnh->dummy_dom;
+        comp = bnh->dummy_comp;
+    } else {
+        comp = &bnh->comps[bnh->comp_id];
+        var = match_local_ifvar(bnh, var_name);
+        if(var) {
+            dom = var->dom;
+        } else {
+            return(NULL);
+        }
+    }
+
+    // TODO: drop client assumption
+
+    if(idx >= 0) {
+        num_str = itoa(idx, 10);
+        field_name = malloc(strlen(var_name) + strlen(num_str) + 2);
+        sprintf(field_name, "%s_%s", var_name, num_str);
+    } else {
+        field_name = strdup(var_name);
+    }
+
+    rcn = get_rcn_from_file(rcn_file, MPI_COMM_SELF);
+    // TODO data type
+    adpt = create_mpient_adapter(comp->cpl_apph, field_name, rcn, comm, buffer, length, BNH_CPL_DOUBLE, 0, -1);
+    var->field = cpl_add_field(dom->cph, "server", field_name, participates);
+
+    free(field_name);
+
+    return(cpl_get_field_ptr(var->field));
+}
+
+void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, int idx, int participates)
+{
+    struct wf_domain *dom;
+    struct wf_var *var;
+    struct field_adapter *adpt;
+    char *field_name, *num_str;
+    int i, found;
+
+    if(bnh->dummy) {
+        bnh->dummy_vars = realloc(bnh->dummy_vars, 
+                (bnh->num_dummy_vars+1) * sizeof(*bnh->dummy_vars));
+        var = &bnh->dummy_vars[bnh->num_dummy_vars++];
+        dom = bnh->dummy_dom;
+    } else {
+        var = match_local_ifvar(bnh, var_name);
+        if(var) {
+            dom = var->dom;
+        } else {
+            return(NULL);
+        }
+    }
+  
+    // TODO: drop client assumption
+
+    if(idx >= 0) {
+        num_str = itoa(idx, 10);
+        field_name = malloc(strlen(var_name) + strlen(num_str) + 2);
+        sprintf(field_name, "%s_%s", var_name, num_str);
+    } else {
+        field_name = strdup(var_name);
+    }
+    adpt = create_dummy_adapter();
+    var->field = cpl_add_field(dom->cph, "server", field_name, participates);
+
+    free(field_name);
+
+    return(cpl_get_field_ptr(var->field));
 }
 
 static int same_root_domain(struct wf_domain *dom1, struct wf_domain *dom2)
@@ -3544,7 +3802,7 @@ int cpl_add_fields(struct benesh_handle *bnh, struct wf_domain *dom,
            same_root_domain(dom, &dom_list[i])) {
             DEBUG_OUT("adding field %s for app %s\n", "gid", dom->name);
             //dom_list[i].field = create_gid_field(dom_list[i].name, "gid", dom->cph, dom->mesh, NULL);
-            DEBUG_OUT("created field %p\n", (void *)(dom_list[i].field));
+            //DEBUG_OUT("created field %p\n", (void *)(dom_list[i].field));
             pos++;
             count++;
         }
@@ -3644,6 +3902,51 @@ struct wf_domain *find_server_dom(struct benesh_handle *bnh, struct wf_domain *d
 }
 
 int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
+         const char *grid_file, const char *cpn_file, int alloc)
+{
+    char *path;
+    struct wf_domain *dom;
+    struct wf_component *comp;
+    int i;
+
+    DUMMY_OUT(0);
+
+    dom = match_domain(bnh, dom_name);
+    if(dom->type != BNH_DOM_MESH) {
+        fprintf(stderr,
+                "ERROR: binding a mesh to grid '%s' is not implemented yet.\n",
+                dom_name);
+        return (-1);
+    }
+
+    dom->mesh = new_oh_mesh(grid_file);
+    dom->rptn = create_oh_partition(dom->mesh, cpn_file);
+    //TODO wfname
+    if(dom->comm_type == BNH_COMM_RDV_CLI) {
+        dom->cph = create_cpl_hndl("xgc_n0_coupling", dom->mesh, dom->rptn, 0, bnh->mycomm);
+    } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
+        dom->cph = create_cpl_hndl("xgc_n0_coupling", dom->mesh, dom->rptn, 1, bnh->mycomm);
+        for(i = 0; i < bnh->comp_count; i++) {
+            if(i != bnh->comp_id) {
+                comp = &bnh->comps[i];
+                path = malloc(strlen(comp->app) + 2);
+                sprintf(path, "%s/", comp->app);
+                comp->cpl_apph = add_application(dom->cph, comp->app, path);
+                free(path);
+            }
+        }
+        //add_application(dom->cph, "core", "core/");
+        //add_application(dom->cph, "edge", "edge/");
+    } else {
+        fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
+        return (-1);
+    }
+    //TODO class ranges
+    mark_cpl_overlap(dom->cph, dom->mesh, dom->rptn, 0, 0);
+
+}
+/*
+int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
                             const char *grid_file, const char *cpn_file, int alloc)
 {
     struct wf_domain *dom, *srv_dom;
@@ -3705,7 +4008,7 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
 
     return (0);
 }
-
+*/
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
                             double *grid_offset, double *grid_dims,
                             uint64_t *grid_points, int alloc)
@@ -3714,6 +4017,8 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
     struct wf_var *var;
     size_t grid_size = 1;
     int i, j;
+
+    DUMMY_OUT(0);
 
     dom = match_domain(bnh, dom_name);
     if(dom->type != BNH_DOM_GRID) {
@@ -3779,6 +4084,8 @@ int benesh_get_var_domain(struct benesh_handle *bnh, const char *var_name,
     struct wf_var *var;
     struct wf_domain *dom;
 
+    DUMMY_OUT(0);
+
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
     dom = var->dom;
     *dom_name = strdup(dom->full_name);
@@ -3804,6 +4111,11 @@ void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name, uint64
 {
     struct wf_var *var;
 
+    if(bnh->dummy) {
+        fprintf(stderr, "WARNING: requested variable buffer '%s' from dummy handle.\n", var_name);
+        return(NULL);
+    }
+
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
     if(size) {
         *size = var->buf_size;
@@ -3816,6 +4128,11 @@ double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name)
 {
     struct wf_var *var;
 
+    if(bnh->dummy) {
+        fprintf(stderr, "WARNING: requested workflow value '%s' from dummy handle.\n", var_name);
+        return(0);
+    }
+
     var = get_gvar(bnh, var_name);
 
     return (var->val);
@@ -3827,6 +4144,8 @@ void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name)
     struct wf_domain *dom;
     const char **field_names;
     int i;
+
+    DUMMY_OUT();
 
     var = get_ifvar(bnh, var_name, bnh->comp_id, NULL);
     dom = var->dom;

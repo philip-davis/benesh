@@ -151,16 +151,14 @@ struct cpl_gid_field {
 
 extern "C" struct cpl_hndl *create_cpl_hndl(const char *wfname, struct omegah_mesh *meshp, struct rdv_ptn *ptnp, int server, MPI_Comm comm)
 {
-    auto ptn = (redev::ClassPtn *)ptnp;
-    //struct cpl_hndl *cpl_h = (struct cpl_hndl *)malloc(sizeof(*cpl_h));
     struct cpl_hndl *cpl_h = new struct cpl_hndl;
-    cpl_h->mesh = (Omega_h::Mesh *)get_mesh(meshp);
     cpl_h->server = (bool)server;
     if(cpl_h->server) {
+        auto ptn = (redev::ClassPtn *)ptnp;
+        cpl_h->mesh = (Omega_h::Mesh *)get_mesh(meshp);
         cpl_h->cpl_srv = new wdmcpl::CouplerServer(wfname, comm, *ptn, *cpl_h->mesh);
-        //cpl_h->fields_ = std::unordered_map<std::string, std::reference_wrapper<wdmcpl::ConvertibleCoupledField>>();
-        //cpl_h->internal_fields_ = std::unordered_map<std::string, wdmcpl::InternalField>(); 
     } else {
+        cpl_h->mesh = NULL;
         cpl_h->cpl_client = new wdmcpl::CouplerClient(wfname, comm);
     }
     return(cpl_h);
@@ -192,7 +190,7 @@ extern "C" void app_end_recv_phase(struct app_hndl *app_h)
     }
 }
 
-extern "C" void cpl_begin_send_phase(struct app_hndl *app_h)
+extern "C" void app_begin_send_phase(struct app_hndl *app_h)
 {
     struct cpl_hndl *cpl_h = app_h->cpl_h;
     if(cpl_h->server) {
@@ -204,7 +202,7 @@ extern "C" void cpl_begin_send_phase(struct app_hndl *app_h)
     }
 }
 
-extern "C" void cpl_end_send_phase(struct app_hndl *app_h)
+extern "C" void app_end_send_phase(struct app_hndl *app_h)
 {
     struct cpl_hndl *cpl_h = app_h->cpl_h;
     if(cpl_h->server) {
@@ -250,7 +248,7 @@ extern "C" void mark_cpl_overlap(struct cpl_hndl *cpl_h, struct app_hndl *apph, 
     }
 }
 
-extern "C" struct field_adapter *create_omegah_adaptor(struct app_hndl *app_h, const char *name, struct omegah_mesh *meshp, enum bnh_data_type data_type)
+extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, const char *name, struct omegah_mesh *meshp, enum bnh_data_type data_type)
 {
     struct field_adapter *adpt_h = new struct field_adapter;
     adpt_h->srv_adpt = new ServerAdapterVariant{};
@@ -304,7 +302,8 @@ void wdmcpl_create_xgc_field_adapter_t(
   adpt.emplace<wdmcpl::XGCFieldAdapter<T>>(
     name, comm, data_view, reverse_classification, 
         [=](int dim, int id) {
-             return(isModelEntInOverlap(dim, id, min_class, max_class));
+            return(1);
+             //return(isModelEntInOverlap(dim, id, min_class, max_class));
          });
 }
 
@@ -315,7 +314,7 @@ extern "C" struct rcn_handle *get_rcn_from_file(const char *fname, MPI_Comm comm
     return((struct rcn_handle *)(new wdmcpl::ReverseClassificationVertex{wdmcpl::ReadReverseClassificationVertex(fname, comm)}));
 }
 
-extern "C" struct field_adapter *create_mpient_adaptor(struct app_hndl *app_h, const char *name, struct rcn_handle *rcn_h, MPI_Comm comm, void *data, int size, enum bnh_data_type data_type, int min_class, int max_class)
+extern "C" struct field_adapter *create_mpient_adapter(struct app_hndl *app_h, const char *name, struct rcn_handle *rcn_h, MPI_Comm comm, void *data, int size, enum bnh_data_type data_type, int min_class, int max_class)
 {
     struct field_adapter *adpt_h = new struct field_adapter;
     wdmcpl::ReverseClassificationVertex *rcn = (wdmcpl::ReverseClassificationVertex *)rcn_h;
@@ -342,7 +341,7 @@ extern "C" struct field_adapter *create_mpient_adaptor(struct app_hndl *app_h, c
     return(adpt_h);
 }
 
-extern "C" struct field_adapter *create_dummy_adaptor()
+extern "C" struct field_adapter *create_dummy_adapter()
 {
     struct field_adapter *adpt_h = new struct field_adapter;
     
@@ -490,11 +489,12 @@ extern "C" void cpl_combine_fields(struct cpl_hndl *cphp, int num_fields, const 
     combiner(combine_fields, combined);
 
 }
-extern "C" void *cpl_get_field_ptr(struct cpl_gid_field *field)
+*/
+extern "C" void *cpl_get_field_ptr(struct field_handle *field)
 {
-    return(field->field);
+    return(field->conv_field);
 }
-
+/*
 extern "C" void cpl_send_field(struct cpl_gid_field *field)
 {
     struct cpl_hndl *cplh = field->cpl;
