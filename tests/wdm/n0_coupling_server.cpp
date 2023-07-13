@@ -171,10 +171,8 @@ void SendRecvPotential(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysi
 }
 
 
-//bind_data
-
-void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, Omega_h::Mesh& mesh,
-                    std::string_view cpn_file, int nphi)
+void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
+                    const char *cpn_file, int nphi)
 {
   std::chrono::duration<double> elapsed_seconds;
   double min, max, avg;
@@ -184,6 +182,7 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, Omega_h::Mesh& mesh,
   char *dom_name;
 
   benesh_get_var_domain(bnh, "potential", &dom_name, NULL, NULL, NULL);
+  benesh_bind_mesh_domain(bnh, dom_name, meshFile, cpn_file, 0); 
   /* // handled by benesh_init
   wdmcpl::CouplerServer cpl("xgc_n0_coupling", comm,
                             redev::Partition{ts::setupServerPartition(mesh, cpn_file)}, mesh);
@@ -240,9 +239,7 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, Omega_h::Mesh& mesh,
   ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
   if(!rank) ts::printTime("Add Meshes", min, max, avg);
 
-  Omega_h::vtk::write_parallel("initial.vtk", &mesh);
   benesh_tpoint(bnh, "init");
-  Omega_h::vtk::write_parallel("psi-only.vtk", &mesh);
   auto time4 = std::chrono::steady_clock::now();
   elapsed_seconds = time4-time3;
   ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
@@ -252,8 +249,6 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, Omega_h::Mesh& mesh,
     std::stringstream ss;
     SendRecvDensity(bnh, core_analysis, edge_analysis, rank, step);
     SendRecvPotential(bnh, core_analysis, edge_analysis, rank, step);
-    ss <<"step-"<<step++ <<".vtk";
-    Omega_h::vtk::write_parallel(ss.str(), &mesh);
   }
 }
 
@@ -281,10 +276,11 @@ int main(int argc, char** argv)
   benesh_app_id bnh;
   benesh_init("coupler", "wdm.xc", MPI_COMM_WORLD, 1, &bnh);
   
-  Omega_h::Mesh mesh(&lib);
-  Omega_h::binary::read(meshFile, lib.world(), &mesh);
-  MPI_Comm mpi_comm = lib.world()->get_impl();
-  omegah_coupler(bnh, mpi_comm, mesh, classPartitionFile, sml_nphi_total);
+  //Omega_h::Mesh mesh(&lib);
+  //Omega_h::binary::read(meshFile, lib.world(), &mesh);
+  //MPI_Comm mpi_comm = lib.world()->get_impl();
+  MPI_Comm mpi_comm = MPI_COMM_WORLD;
+  omegah_coupler(bnh, mpi_comm, meshFile, classPartitionFile, sml_nphi_total);
 
   benesh_fini(bnh);
   return 0;
