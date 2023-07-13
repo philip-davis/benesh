@@ -30,6 +30,13 @@ contains
         call benesh_fini_f2c(handle%handle)
     end subroutine
 
+    subroutine benesh_bind_field_domain(handle, name)
+        type(benesh_app_id), intent(in) :: handle
+        character*(*), intent(in) :: name
+
+        call benesh_bind_field_domain_f2c(handle%handle, name)
+    end subroutine
+
     subroutine benesh_bind_field_mpient(handle, name, index, rcn_file, comm, buffer, length, participates, field)
         type(benesh_app_id), intent(in) :: handle
         character*(*), intent(in) :: name, rcn_file

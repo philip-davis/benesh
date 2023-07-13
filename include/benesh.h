@@ -34,6 +34,8 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
 int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
                             const char *grid_file, const char *cpn_file, int alloc);
 
+int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name);
+
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname);
 
 int benesh_fini(struct benesh_handle *bnh);

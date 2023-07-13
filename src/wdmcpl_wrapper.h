@@ -25,14 +25,14 @@ void app_end_recv_phase(struct app_hndl *app_h);
 void app_begin_send_phase(struct app_hndl *app_h);
 void app_end_send_phase(struct app_hndl *app_h);
 
-struct field_adapter *create_dummy_adapter();
+struct field_adapter *create_dummy_adapter(struct app_hndl *app_h, const char *name);
 struct field_adapter *create_mpient_adapter(struct app_hndl *app_h, const char *name, struct rcn_handle *rcn_h, MPI_Comm comm, void *data, int size, enum bnh_data_type data_type, int min_class, int max_class);
 
 struct rcn_handle *get_rcn_from_file(const char *fname, MPI_Comm comm);
 
-struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, const char *name, struct omegah_mesh *meshp, enum bnh_data_type data_type);
+struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, const char *name, const char *path, struct omegah_mesh *meshp, enum bnh_data_type data_type);
 
-void mark_cpl_overlap(struct cpl_hndl *cph, struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class);
+void mark_cpl_overlap(struct cpl_hndl *cpl_h, struct app_hndl *apph, struct omegah_mesh *meshp, struct rdv_ptn *rptn, int min_class, int max_class);
 
 struct field_handle *cpl_add_field(struct cpl_hndl *cpl_h, const char *app_name, const char *name, int participates);
 

@@ -34,7 +34,7 @@
 
 
 D   [0-9]
-id  [A-Za-z_][A-Za-z0-9_]*
+id  [A-Za-z_][A-Za-z0-9_@]*
 
     /*
         The following indentation code is based on:

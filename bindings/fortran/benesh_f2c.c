@@ -20,6 +20,12 @@ void FC_GLOBAL(benesh_fini_f2c,
     benesh_fini(*bnh);
 }
 
+void FC_GLOBAL(benesh_bind_field_domain_f2c,
+        BENESH_BIND_FIELD_DOMAIN_F2C)(benesh_app_id *bnh, const char *dom_name)
+{
+    benesh_bind_field_domain(*bnh, dom_name);
+}
+
 void FC_GLOBAL(benesh_bind_field_mpient_f2c,
         BENESH_BIND_FIELD_MPIENT_F2C)(benesh_app_id *bnh, const char *name, int *index, 
                                         const char *rcn_file, int *fcomm, void **buffer, 

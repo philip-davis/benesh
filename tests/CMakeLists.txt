@@ -7,7 +7,7 @@ target_include_directories(smoke PRIVATE
     ${MPI_C_INCLUDE_PATH}
 )
 target_compile_options(smoke PRIVATE ${MPI_C_COMPILE_FLAGS})
-target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh)
+target_link_libraries(smoke ${MPI_C_LIBRARIES} ${MPI_C_LINK_FLAGS} benesh m)
 
 #add_executable(bredev redev/util_benchsrBenesh.cpp)
 
@@ -56,7 +56,7 @@ target_include_directories(heateq_adhoc PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
 target_compile_options(heateq_adhoc PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(heateq_adhoc ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} dspaces::dspaces)
+target_link_libraries(heateq_adhoc ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} dspaces::dspaces m)
 
 add_executable(heateq_adhoc_async heateq/heateq2d_adhoc_async.c heateq/heat.c)
 
@@ -64,7 +64,7 @@ target_include_directories(heateq_adhoc_async PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
 target_compile_options(heateq_adhoc_async PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(heateq_adhoc_async ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} dspaces::dspaces)
+target_link_libraries(heateq_adhoc_async ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} dspaces::dspaces m)
 
 add_executable(heateq_benesh heateq/heateq2d_benesh.c heateq/heat.c)
 
@@ -72,18 +72,18 @@ target_include_directories(heateq_benesh PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
 target_compile_options(heateq_benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(heateq_benesh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2)
+target_link_libraries(heateq_benesh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 m)
 
 add_executable(n0_coupler wdm/n0_coupling_server.cpp wdm/test_support.cpp)
 target_include_directories(n0_coupler PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )
 target_compile_options(n0_coupler PRIVATE ${MPI_CXX_COMPILE_FLAGS})
-target_link_libraries(n0_coupler ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h)
+target_link_libraries(n0_coupler ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh wdmcpl::wdmcpl redev::redev adios2::adios2 Omega_h::omega_h m)
 
 add_executable(xgc_test wdm/xgc_test.f90)
 target_compile_options(xgc_test PRIVATE ${MPI_Fortran_COMPILE_FLAGS})
-target_link_libraries(xgc_test ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh_fortran)
+target_link_libraries(xgc_test ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh_fortran m)
 
 if(_apex_FOUND)
     add_definitions(-DUSE_APEX)

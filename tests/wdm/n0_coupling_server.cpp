@@ -181,7 +181,7 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
   auto time1 = std::chrono::steady_clock::now();
   char *dom_name;
 
-  benesh_get_var_domain(bnh, "potential", &dom_name, NULL, NULL, NULL);
+  benesh_get_var_domain(bnh, "psi@core", &dom_name, NULL, NULL, NULL);
   benesh_bind_mesh_domain(bnh, dom_name, meshFile, cpn_file, 0); 
   /* // handled by benesh_init
   wdmcpl::CouplerServer cpl("xgc_n0_coupling", comm,
@@ -214,26 +214,26 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
   
   for (int i = 0; i < nphi; ++i) {
     //bind vars with benesh
-    core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane.core", &i, 1));
-    core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_1_plane.core", &i, 1));
-    core_analysis.pot0.push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "pot0_plane.core", &i, 1));
-    core_analysis.edensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_1_plane.core", &i, 1));
-    core_analysis.edensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_2_plane.core", &i, 1));
-    core_analysis.idensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_1_plane.core", &i, 1));
-    core_analysis.idensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_2_plane.core", &i, 1));
+    core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane@core", &i, 1));
+    core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_1_plane@core", &i, 1));
+    core_analysis.pot0.push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "pot0_plane@core", &i, 1));
+    core_analysis.edensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_1_plane@core", &i, 1));
+    core_analysis.edensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_2_plane@core", &i, 1));
+    core_analysis.idensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_1_plane@core", &i, 1));
+    core_analysis.idensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_2_plane@core", &i, 1));
 
-    edge_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane.edge", &i, 1));
-    edge_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_1_plane.edge", &i, 1));
-    edge_analysis.pot0.push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "pot0_plane.edge", &i, 1));
-    edge_analysis.edensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_1_plane.edge",  &i, 1));
-    edge_analysis.edensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_2_plane.edge",  &i, 1));
-    edge_analysis.idensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_1_plane.edge",  &i, 1));
-    edge_analysis.idensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_2_plane.edge",  &i, 1));
+    edge_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane@edge", &i, 1));
+    edge_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_1_plane@edge", &i, 1));
+    edge_analysis.pot0.push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "pot0_plane@edge", &i, 1));
+    edge_analysis.edensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_1_plane@edge",  &i, 1));
+    edge_analysis.edensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "edensity_2_plane@edge",  &i, 1));
+    edge_analysis.idensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_1_plane2edge",  &i, 1));
+    edge_analysis.idensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_2_plane@edge",  &i, 1));
   }
-  core_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi.core", NULL, 0);
-  edge_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi.edge", NULL, 0);
-  core_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug.core",NULL,  0);
-  edge_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug.edge",NULL,  0);
+  core_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi@core", NULL, 0);
+  edge_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi@edge", NULL, 0);
+  core_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug@core",NULL,  0);
+  edge_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug@edge",NULL,  0);
   auto time3 = std::chrono::steady_clock::now();
   elapsed_seconds = time3-time2;
   ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
@@ -258,7 +258,7 @@ int main(int argc, char** argv)
   auto world = lib.world();
   const int rank = world->rank();
   int size = world->size();
-  Kokkos::ScopeGuard kokkos{};
+  //Kokkos::ScopeGuard kokkos{};
   if (argc != 4) {
     if (!rank) {
       std::cerr << "Usage: " << argv[0]

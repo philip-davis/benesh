@@ -23,124 +23,15 @@ struct omegah_mesh {
 };
 struct omegah_array;
 
-/*
-struct OmegaHGids
-{
-  OmegaHGids(Omega_h::Mesh& mesh, Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  std::vector<redev::GO> operator()(std::string_view) const
-  {
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    std::vector<redev::GO> global_ids;
-    for (size_t i = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        global_ids.push_back(gids_h[i]);
-      }
-    }
-    return global_ids;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-struct SerializeOmegaHGids
-{
-  SerializeOmegaHGids(Omega_h::Mesh& mesh,
-                      Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  int operator()(std::string_view, nonstd::span<T> buffer,
-                 nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    // WDMCPL_ALWAYS_ASSERT(buffer.size() == is_overlap_h_.size());
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    int count = 0;
-    for (size_t i = 0, j = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        if (buffer.size() > 0) {
-          buffer[permutation[j++]] = gids_h[i];
-        }
-        ++count;
-      }
-    }
-    return count;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-// Serializer is used in a two pass algorithm. Must check that the buffer size
-// >0 and return the number of entries.
-struct SerializeOmegaH
-{
-  SerializeOmegaH(Omega_h::Mesh& mesh,
-                  Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  int operator()(std::string_view name, nonstd::span<T> buffer,
-                 nonstd::span<const wdmcpl::LO> permutation) const
-  {
-    // WDMCPL_ALWAYS_ASSERT(buffer.size() == is_overlap_h_.size());
-    const auto array = mesh_.get_array<T>(0, std::string(name));
-    const auto array_h = Omega_h::HostRead(array);
-    int count = 0;
-    for (size_t i = 0, j = 0; i < array_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        if (buffer.size() > 0) {
-          buffer[permutation[j++]] = array_h[i];
-        }
-        ++count;
-      }
-    }
-    return count;
-  }
-  Omega_h::Mesh mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-
-struct DeserializeOmegaH
-{
-  DeserializeOmegaH(Omega_h::Mesh& mesh,
-                    Omega_h::HostRead<Omega_h::I8> is_overlap_h)
-    : mesh_(mesh), is_overlap_h_(is_overlap_h)
-  {
-  }
-  template <typename T>
-  void operator()(std::string_view, nonstd::span<const T> buffer,
-                  nonstd::span<const wdmcpl::LO> permutation) const
-  {
-
-    REDEV_ALWAYS_ASSERT(buffer.size() == permutation.size());
-    auto gids = mesh_.globals(0);
-    auto gids_h = Omega_h::HostRead(gids);
-    std::vector<redev::GO> global_ids;
-    for (size_t i = 0, j = 0; i < gids_h.size(); i++) {
-      if (is_overlap_h_[i]) {
-        REDEV_ALWAYS_ASSERT(gids_h[i] == buffer[permutation[j++]]);
-      }
-    }
-  }
-
-private:
-  Omega_h::Mesh& mesh_;
-  Omega_h::HostRead<Omega_h::I8> is_overlap_h_;
-};
-*/
 namespace ts = test_support;
 
 extern "C" struct omegah_mesh *new_oh_mesh(const char *meshFile)
 {
     int argc = 0;
     char **argv = NULL;
-    return (new struct omegah_mesh(meshFile, &argc, &argv));
+    struct omegah_mesh *mesh = new struct omegah_mesh(meshFile, &argc, &argv);
+    std::cout << "struct addr: " << (void *)mesh << " mesh address: " << (void *)&mesh->mesh << std::endl;
+    return(mesh);
 }
 
 extern "C" struct rdv_ptn *create_oh_partition(struct omegah_mesh *mesh,
@@ -229,6 +120,7 @@ extern "C" struct omegah_array *mark_server_mesh_overlap(struct omegah_mesh *mes
     redev::ClassPtn *ptn = (redev::ClassPtn *)rptn;
 
     // transfer vtx classification to host
+    std::cout << "in mark, mesh address is " << (void *)&mesh->mesh << std::endl;
     auto classIds = mesh->mesh.get_array<Omega_h::ClassId>(0, "class_id");
     auto classIds_h = Omega_h::HostRead(classIds);
     auto classDims = mesh->mesh.get_array<Omega_h::I8>(0, "class_dim");

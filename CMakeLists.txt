@@ -28,7 +28,19 @@ set (CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 set (CMAKE_PREFIX_PATH "" CACHE STRING "External dependencies path")
-#set (BUILD_SHARED_LIBS "OFF" CACHE BOOL "Build a shared library")
+
+include(CMakeDependentOption)
+get_property(SHARED_LIBS_SUPPORTED GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS)
+cmake_dependent_option(BUILD_SHARED_LIBS
+  "Build shared libraries (so/dylib/dll)." ${SHARED_LIBS_SUPPORTED}
+  "SHARED_LIBS_SUPPORTED" OFF
+)
+mark_as_advanced(BUILD_SHARED_LIBS)
+if((NOT BUILD_SHARED_LIBS) AND (NOT DEFINED CMAKE_POSITION_INDEPENDENT_CODE))
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
+set (BUILD_SHARED_LIBS "OFF" CACHE BOOL "Build a shared library")
 
 option(ENABLE_TIMING "enable APEX timing output" OFF)
 

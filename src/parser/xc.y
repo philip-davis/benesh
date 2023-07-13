@@ -1053,7 +1053,7 @@ struct xc_config *xc_fparse(const char *fname, MPI_Comm comm)
     if(!rank) {
         conf_file = fopen(fname, "rb");
         if(!conf_file) {
-            perror("could not open configuration file");
+            perror("Could not open Benesh configuration file");
             return(NULL);
         }
         fread(fbuf, 1, st.st_size, conf_file);

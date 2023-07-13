@@ -248,7 +248,7 @@ extern "C" void mark_cpl_overlap(struct cpl_hndl *cpl_h, struct app_hndl *apph, 
     }
 }
 
-extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, const char *name, struct omegah_mesh *meshp, enum bnh_data_type data_type)
+extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, const char *name, const char *path, struct omegah_mesh *meshp, enum bnh_data_type data_type)
 {
     struct field_adapter *adpt_h = new struct field_adapter;
     adpt_h->srv_adpt = new ServerAdapterVariant{};
@@ -260,13 +260,13 @@ extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, c
            break;
         */
         case BNH_CPL_DOUBLE:
-            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<double>>(name, *app_h->mesh, *app_h->overlap_h, "simNumbering"); 
+            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<double>>(path, *app_h->mesh, *app_h->overlap_h, "simNumbering"); 
             break;
         case BNH_CPL_INT:
-            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<int>>(name, *app_h->mesh, *app_h->overlap_h, "simNumbering");
+            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<int>>(path, *app_h->mesh, *app_h->overlap_h, "simNumbering");
             break;
         case BNH_CPL_LONG_INT:
-            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<long>>(name, *app_h->mesh, *app_h->overlap_h, "simNumbering");
+            adpt_h->srv_adpt->emplace<wdmcpl::OmegaHFieldAdapter<long>>(path, *app_h->mesh, *app_h->overlap_h, "simNumbering");
         default:
             std::cerr << "ERROR: bad data type in " << __func__ << std::endl;
             return(NULL);
@@ -341,12 +341,14 @@ extern "C" struct field_adapter *create_mpient_adapter(struct app_hndl *app_h, c
     return(adpt_h);
 }
 
-extern "C" struct field_adapter *create_dummy_adapter()
+extern "C" struct field_adapter *create_dummy_adapter(struct app_hndl *app_h, const char *name)
 {
     struct field_adapter *adpt_h = new struct field_adapter;
     
     adpt_h->adpt = new AdapterVariant{};
     adpt_h->adpt->emplace<wdmcpl::DummyFieldAdapter>();
+
+    app_h->adpts[name] = std::shared_ptr<struct field_adapter>(adpt_h);
 
     return(adpt_h);
 }
@@ -443,92 +445,10 @@ extern "C" void cpl_send_field(struct field_handle *field_hndl)
     }
 }
 
-/*
-extern "C" struct cpl_gid_field *create_gid_field(struct app_hndl *apph, const char *field_name, struct cpl_hndl *cphp, struct omegah_mesh *meshp, void *field_buf)
-{
-    wdmcpl::Application *app = apph->handle;
-    Omega_h::Mesh *mesh = (Omega_h::Mesh *)get_mesh(meshp); 
-    //auto &app = cpl_h->AddApplication(app_name);
-    struct cpl_gid_field *field = new struct cpl_gid_field();
-
-    field->field_name = strdup(app_name);
-    field->cpl = cphp;
-
-    if(cphp->server) {
-        auto cpl = (wdmcpl::CouplerServer *)(cphp->cpl_srv);
-        field->field = cpl->AddField(app_name, wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>(app_name, *mesh, *cphp->overlap_h), wdmcpl::FieldTransferMethod::Copy,
-               wdmcpl::FieldEvaluationMethod::None,
-               wdmcpl::FieldTransferMethod::Copy,
-               wdmcpl::FieldEvaluationMethod::None, *cphp->overlap_h);
-        cphp->fields_.insert(std::pair<std::string, std::reference_wrapper<wdmcpl::ConvertibleCoupledField>>(app_name, *field->field));
-        //wdmcpl::InternalField intf = field->field->GetInternalField(); 
-        cphp->internal_fields_.insert(std::pair<std::string, wdmcpl::InternalField>(std::string(app_name), wdmcpl::InternalField(field->field->GetInternalField())));
-    } else {
-        auto cpl = (wdmcpl::CouplerClient *)(cphp->cpl_client);
-        cpl->AddField(app_name,  wdmcpl::OmegaHFieldAdapter<wdmcpl::GO>("global", *mesh, *cphp->overlap_h));
-    }
-
-    return(field);
-}
-
-extern "C" void cpl_combine_fields(struct cpl_hndl *cphp, int num_fields, const char **field_names)
-{
-    std::vector<std::string> fields_to_combine;
-    std::vector<std::reference_wrapper<wdmcpl::InternalField>> combine_fields;
-    auto combiner = MeanCombiner{};
-    int i;
-
-    combine_fields.reserve(num_fields);
-    for(i = 0; i < num_fields; i++) {
-        wdmcpl::ConvertibleCoupledField& field = cphp->fields_.at(std::string(field_names[i]));
-        //combine_fields.insert(std::pair<std::string, std::reference_wrapper<wdmcpl::InternalField>>(std::string(field_names[i]), field.GetInternalField()));
-        combine_fields.push_back(field.GetInternalField());
-    }
-    auto& combined = wdmcpl::detail::find_or_create_internal_field<wdmcpl::Real>(
-      std::string("combined_gids"), cphp->internal_fields_, *cphp->mesh, *cphp->overlap_h);
-    combiner(combine_fields, combined);
-
-}
-*/
 extern "C" void *cpl_get_field_ptr(struct field_handle *field)
 {
     return(field->conv_field);
 }
-/*
-extern "C" void cpl_send_field(struct cpl_gid_field *field)
-{
-    struct cpl_hndl *cplh = field->cpl;
-    field->tsendstart.push_back(std::chrono::steady_clock::now());
-    APEX_NAME_TIMER_START(1, "field_send");
-    if(cplh->server) {
-        wdmcpl::ConvertibleCoupledField *coupled_field = field->field;
-        coupled_field->SyncInternalToNative();
-        coupled_field->Send();
-    } else {
-        wdmcpl::CouplerClient *cpl = cplh->cpl_client;
-        cpl->SendField(field->field_name);
-    }
-    APEX_TIMER_STOP(1);
-    field->tsendend.push_back(std::chrono::steady_clock::now());
-}
-
-extern "C" void cpl_recv_field(struct cpl_gid_field *field, double **buffer, size_t *num_elem)
-{
-    struct cpl_hndl *cplh = field->cpl;
-    field->trecvstart.push_back(std::chrono::steady_clock::now());
-    APEX_NAME_TIMER_START(1, "field_recv");
-    if(cplh->server) {
-        wdmcpl::ConvertibleCoupledField *coupled_field = field->field;
-        coupled_field->Receive();
-        coupled_field->SyncNativeToInternal();
-    } else {
-        wdmcpl::CouplerClient *cpl = cplh->cpl_client;
-        cpl->ReceiveField(field->field_name);
-    }
-    APEX_TIMER_STOP(1);
-    field->trecvend.push_back(std::chrono::steady_clock::now());
-}
-*/
 
 extern "C" void report_send_recv_timing(struct cpl_gid_field *field, const char *name)
 {
