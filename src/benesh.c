@@ -1067,6 +1067,7 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         }
     }
 
+    DEBUG_OUT("rule has %i targets\n", rule->num_tgts);
     fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
     for(i = 0; i < rule->num_tgts; i++) {
         tgt_obj = rule->tgts[i];
@@ -3444,10 +3445,8 @@ static struct wf_var *match_local_ifvar(struct benesh_handle *bnh, const char *v
     int i, found;
 
     found = 0;
-    DEBUG_OUT("interface variable count: %i\n", bnh->ifvar_count);
     for(i = 0; i < bnh->ifvar_count; i++) {
         var = &bnh->ifvars[i];
-        DEBUG_OUT("does %s equal %s?\n", var->name, var_name);
         if(var->comp_id == bnh->comp_id && strcmp(var->name, var_name) == 0) {
             found = 1;
             break;
@@ -3506,12 +3505,12 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
     }
     
     tmp_vname = strdup(var_name);
-    app_name = strchr(tmp_vname, '@');
+    app_name = strchr(tmp_vname, '\\');
     if(app_name) {
         *app_name = '\0';
         app_name++;    
     } else {
-        fprintf(stderr, "ERROR: mesh variables must indicate parnter component, for now.\n");
+        fprintf(stderr, "ERROR: mesh variables must indicate partner component, for now.\n");
         return(NULL);
     }
 

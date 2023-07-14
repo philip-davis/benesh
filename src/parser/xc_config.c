@@ -1037,6 +1037,7 @@ int xc_check_unity(struct xc_list_node *list, struct xc_list_node *pqobj)
         if(comp) {
             return (xc_check_unity(comp->iface->decl, pqobj->next));
         }
+        return(1);
     } else {
         node = list;
         while(node) {

@@ -60,6 +60,6 @@ contains
         type(benesh_app_id), intent(in) :: handle
         character*(*), intent(in) :: name
 
-        call benesh_tpoint_f2c(handle%handle, name)
+        call benesh_tpoint_f2c(handle%handle, name // C_NULL_CHAR)
     end subroutine
 end module benesh

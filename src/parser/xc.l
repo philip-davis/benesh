@@ -34,7 +34,7 @@
 
 
 D   [0-9]
-id  [A-Za-z_][A-Za-z0-9_@]*
+id  [A-Za-z_][A-Za-z0-9_\\]*
 
     /*
         The following indentation code is based on:
@@ -149,7 +149,7 @@ id  [A-Za-z_][A-Za-z0-9_@]*
     BEGIN(obj); // handle objparts that are just integers
     return(CLEXPR);
 }
-<normal>[:;<>\{\}\(\),\*\[\]=%\.@+\^] {
+<normal>[:;<>\{\}\(\),\*\[\]=%\.@+\^\\] {
     return(yytext[0]);
 }
 <normal>interface {

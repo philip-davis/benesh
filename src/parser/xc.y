@@ -681,7 +681,7 @@ pbblk :
         if(!xc_check_unity(wf->subconf, $1)) {
             char *msg;
             char *objname = xc_obj_tostr($1);
-            asprintf(&msg, "no possible resolution of ''%s'", objname);
+            asprintf(&msg, "no possible resolution of '%s'", objname);
             xc_error(&yylloc, wf, msg);
             free(msg);
             free(objname);

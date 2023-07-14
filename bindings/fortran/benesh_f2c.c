@@ -1,6 +1,7 @@
 #include <FC.h>
 #include <benesh.h>
 #include <mpi.h>
+#include <stdio.h>
 
 #if defined(__cplusplus)
 extern "C" {
