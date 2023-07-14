@@ -253,6 +253,7 @@ extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, c
     struct field_adapter *adpt_h = new struct field_adapter;
     adpt_h->srv_adpt = new ServerAdapterVariant{};
     adpt_h->data_type = data_type;
+    std::cerr << "creating omegah adapter with " << path << " for " << name <<  std::endl;
     switch(data_type) {
         /*
         case BNH_CPL_FLOAT:
@@ -360,6 +361,7 @@ struct field_handle {
         wdmcpl::ConvertibleCoupledField *conv_field;
     };
     enum field_type type;
+    struct app_hndl *apph;
 };
 
 struct AddClientFieldVariantOperators {
@@ -415,6 +417,7 @@ extern "C" struct field_handle *cpl_add_field(struct cpl_hndl *cpl_h, const char
         field->type = PCMS_FIELD_COUPLED;
         field->cpl_field = std::visit(AddClientFieldVariantOperators{name, cpl, participates}, *adpt);
     }
+    field->apph = app_h;
 
     return(field);
 }

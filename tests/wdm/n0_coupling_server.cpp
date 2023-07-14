@@ -97,16 +97,46 @@ static void AverageAndSetFields(const std::vector<wdmcpl::ConvertibleCoupledFiel
   }
 }
 
+struct analyses {
+    XGCAnalysis *core_analysis;
+    XGCAnalysis *edge_analysis;
+};
+
+int copy_densities(benesh_app_id bnh, void *arg)
+{
+    struct analyses *ans = (struct analyses *)arg;
+
+    CopyFields(ans->core_analysis->edensity[0], ans->edge_analysis->edensity[0]);
+    CopyFields(ans->core_analysis->edensity[1], ans->edge_analysis->edensity[1]);
+    CopyFields(ans->core_analysis->idensity[0], ans->edge_analysis->idensity[0]);
+    CopyFields(ans->core_analysis->idensity[1], ans->edge_analysis->idensity[1]);
+    
+    return(0);
+}
+
+int copy_potentials(benesh_app_id bnh, void *arg)
+{
+    struct analyses *ans = (struct analyses *)arg;
+
+    for(int i=0; i< ans->edge_analysis->dpot.size(); ++i){
+        CopyFields(ans->edge_analysis->dpot[i], ans->core_analysis->dpot[i]);
+        CopyFields(ans->edge_analysis->dpot[i], ans->core_analysis->dpot[i]);
+    }
+
+    return(0);
+}
+
 void SendRecvDensity(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis& edge_analysis, int rank, int step) {
-    std::stringstream ss;
     std::chrono::duration<double> elapsed_seconds;
     double min, max, avg;
     if(!rank) std::cerr<<"Send/Recv Density\n"; 
     auto sr_time1 = std::chrono::steady_clock::now();
+    char tpname[100];
     
     // Gather
-    ss << "gather_density." << step;
-    benesh_tpoint(bnh, ss.str().c_str());
+    sprintf(tpname, "gather_density.%i", step);
+    std::cout << "tpoint: " << tpname << std::endl;
+    benesh_tpoint(bnh, tpname);
      
     auto sr_time2 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time2-sr_time1;
@@ -126,9 +156,9 @@ void SendRecvDensity(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis&
     elapsed_seconds = sr_time1-sr_time2;
     ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
     if(!rank) ts::printTime("Average Density", min, max, avg);
-    ss.str("scatter_density.");
-    ss << step;
-    benesh_tpoint(bnh, ss.str().c_str());
+    sprintf(tpname, "scatter_density.%i", step);
+    std::cout << "tpoint: " << tpname << std::endl;
+    benesh_tpoint(bnh, tpname);
     auto sr_time3 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time3-sr_time1;
     ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
@@ -136,15 +166,16 @@ void SendRecvDensity(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis&
 }
 
 void SendRecvPotential(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis& edge_analysis, int rank, int step) {
-    std::stringstream ss;
     std::chrono::duration<double> elapsed_seconds;
      double min, max, avg;
     if(!rank) std::cerr<<"Send/Recv Potential\n"; 
     auto sr_time3 = std::chrono::steady_clock::now();
-    
+    char tpname[100];
+
     // Gather
-    ss << "get_potential." << step;
-    benesh_tpoint(bnh, ss.str().c_str());
+    sprintf(tpname, "get_potential.%i", step);
+    std::cout << "tpoint: " << tpname << std::endl;
+    benesh_tpoint(bnh, tpname);
     
     auto sr_time4 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time4-sr_time3;
@@ -160,10 +191,10 @@ void SendRecvPotential(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysi
     elapsed_seconds = sr_time5-sr_time4;
     ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
     if(!rank) ts::printTime("Copy Potential", min, max, avg);
-    
-    ss.str("send_potential.");
-    ss << step;
-    benesh_tpoint(bnh, ss.str().c_str());
+   
+    sprintf(tpname, "send_potential.%i", step); 
+    std::cout << "tpoint: " << tpname << std::endl;
+    benesh_tpoint(bnh, tpname);
     auto sr_time6 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time6-sr_time5;
     ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
@@ -181,37 +212,26 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
   auto time1 = std::chrono::steady_clock::now();
   char *dom_name;
 
+  XGCAnalysis core_analysis;
+  XGCAnalysis edge_analysis;
+
+  struct analyses ans = {&core_analysis, &edge_analysis}; 
+
   benesh_get_var_domain(bnh, "psi\\core", &dom_name, NULL, NULL, NULL);
-  benesh_bind_mesh_domain(bnh, dom_name, meshFile, cpn_file, 0); 
-  /* // handled by benesh_init
-  wdmcpl::CouplerServer cpl("xgc_n0_coupling", comm,
-                            redev::Partition{ts::setupServerPartition(mesh, cpn_file)}, mesh);
-  const auto partition = std::get<redev::ClassPtn>(cpl.GetPartition());
-  std::string numbering = "simNumbering";
-  WDMCPL_ALWAYS_ASSERT(mesh.has_tag(0, numbering));
-  auto* core = cpl.AddApplication("core", "core/");
-  auto* edge = cpl.AddApplication("edge", "edge/");
-  auto is_overlap = ts::markServerOverlapRegion(
-    mesh, partition, KOKKOS_LAMBDA(const int dim, const int id) {
-      //if (id >= 1 && id <= 2) {
-      //  return 1;
-      //}
-      //if (id >= 100 && id <= 140) {
-      //  return 1;
-      //}
-      //return 0;
-      return 1;
-    });
-  */
+  benesh_bind_mesh_domain(bnh, dom_name, meshFile, cpn_file, 0);
+  benesh_bind_method(bnh, "xfr_density", copy_densities, &ans);
+  benesh_bind_method(bnh, "xfr_potential", copy_potentials, &ans);
   auto time2 = std::chrono::steady_clock::now();
   elapsed_seconds = time2-time1;
   ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
   if(!rank) ts::printTime("Initialize Coupler/Mesh", min, max, avg);
 
-  XGCAnalysis core_analysis;
-  XGCAnalysis edge_analysis;
   std::cerr << "ADDING FIELDS\n";
-  
+  core_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi\\core", NULL, 0);
+  edge_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi\\edge", NULL, 0);
+  core_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\core",NULL,  0);
+  edge_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\edge",NULL,  0);
+
   for (int i = 0; i < nphi; ++i) {
     //bind vars with benesh
     core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane\\core", &i, 1));
@@ -230,10 +250,6 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
     edge_analysis.idensity[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_1_plane\\edge",  &i, 1));
     edge_analysis.idensity[1].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "idensity_2_plane\\edge",  &i, 1));
   }
-  core_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi\\core", NULL, 0);
-  edge_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi\\edge", NULL, 0);
-  core_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\core",NULL,  0);
-  edge_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\edge",NULL,  0);
   auto time3 = std::chrono::steady_clock::now();
   elapsed_seconds = time3-time2;
   ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
@@ -249,6 +265,7 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
     std::stringstream ss;
     SendRecvDensity(bnh, core_analysis, edge_analysis, rank, step);
     SendRecvPotential(bnh, core_analysis, edge_analysis, rank, step);
+    step++;
   }
 }
 

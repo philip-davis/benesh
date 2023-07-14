@@ -796,13 +796,6 @@ int schedule_subrules(struct benesh_handle *bnh, struct wf_target *tgt,
             }
         } else {
             if(chain) {
-                /*
-                if(i != tgt->num_subrules - 1 &&
-                   tgt->subrule[i-1].type != BNH_SUBRULE_PUB) {
-                    fprintf(stderr,"will announce target %li, subrule %i\n", tgt
-                - bnh->tgts, i+1); wnode->announce = 1;
-                }
-                */
                 DEBUG_OUT("subrule %i should announce completion\n",
                           wnode->subrule);
                 wnode->announce = 1;
@@ -2786,22 +2779,40 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_domain *src_dom = src_var->dom;
     struct wf_domain *dst_dom = dst_var->dom;
     struct field_handle *field;
+    struct app_hndl *apph;
     double *goff_lb, *goff_ub;
     int i;
 
+    DEBUG_OUT("publishing variable %s to %s\n", src_var->name, dst_comp->name);
+
+    if(!src_dom) {
+        fprintf(stderr, "ERROR: source domain is empty\n");
+    }
+
     if(src_dom->comm_type == BNH_COMM_RDV_SRV ||
             src_dom->comm_type == BNH_COMM_RDV_CLI) {
+        // TODO this is not the right way to do this
+        if(src_dom->comm_type == BNH_COMM_RDV_CLI) {
+            apph = bnh->comps[bnh->comp_id].cpl_apph;
+        } else {
+            apph = dst_comp->cpl_apph;
+        }
+        DEBUG_OUT("doing a field transfer (app %p)\n", (void *)apph);
+        dst_comp->send_phase_open = 0; //DEBUG!!!!
         if(dst_comp->send_phase_open == 0) {
-            app_begin_send_phase(dst_comp->cpl_apph);
+            DEBUG_OUT("starting send phase\n");
+            app_begin_send_phase(apph);
             dst_comp->send_phase_open = 1;
         }
-        
+       
+        DEBUG_OUT("%i fields to send\n", src_var->num_fields); 
         for(i = 0; i < src_var->num_fields; i++) {
             DEBUG_OUT("sending %s, field %i on %s using %p\n", src_var->name, i, src_dom->full_name, field);
             field = src_var->fields[i];
             cpl_send_field(field);
             DEBUG_OUT("sent\n"); 
         }
+        app_end_send_phase(apph); // DEBUG!!!!
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
@@ -2851,19 +2862,30 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     struct wf_var *src_var = &bnh->ifvars[prule->var_id];
     struct wf_domain *src_dom = src_var->dom;
     struct wf_domain *dst_dom = dst_var->dom;
+    struct app_hndl *apph;
     struct field_handle *field;
     size_t num_elem;
     int i;
 
+    DEBUG_OUT("getting %s from %s\n", dst_var->name, src_comp->name);
+    if(dst_dom->comm_type == BNH_COMM_RDV_CLI) {
+        apph = bnh->comps[bnh->comp_id].cpl_apph;
+    } else {
+        apph = src_comp->cpl_apph;
+    }
+    src_comp->recv_phase_open = 0; //DEBUG!!!
     if(src_comp->recv_phase_open == 0) {
-        app_begin_recv_phase(dst_comp->cpl_apph);
+        DEBUG_OUT("Starting receive phase (apph %p)\n", (void *)apph);
+        app_begin_recv_phase(apph);
         src_comp->recv_phase_open = 1;
     }
+    DEBUG_OUT("%i fields to get.\n", dst_var->num_fields);
     for(i = 0; i < dst_var->num_fields; i++) {
         field = dst_var->fields[i];
         DEBUG_OUT("receiving %s, field %i\n", dst_var->name, i);
         cpl_recv_field(field);
     }
+    app_end_recv_phase(apph);
 
     return (1);
 }
@@ -2885,7 +2907,6 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         dom = dst_var->dom;
         if(dom->comm_type == BNH_COMM_RDV_SRV ||
            dom->comm_type == BNH_COMM_RDV_CLI) {
-            DEBUG_OUT("getting data with rdv\n");
             return (get_with_redev(bnh, wnode));
         } else {
             APEX_NAME_TIMER_START(1, "data_lock_csa");
@@ -3133,9 +3154,6 @@ static void benesh_end_phases(struct benesh_handle *bnh)
 
     for(i = 0; i < bnh->comp_count; i++) {
         comp = &bnh->comps[i];
-        if(i == bnh->comp_id) {
-            continue;
-        }
         if(comp->recv_phase_open) {
             app_end_recv_phase(comp->cpl_apph);
             comp->recv_phase_open = 0;
@@ -3202,7 +3220,7 @@ void benesh_handle_work(struct benesh_handle *bnh)
             case BNH_WORK_CHAIN:
                 DEBUG_OUT("cleanup from chain completion\n");
                 //TODO: make graceful - should be scheduled as a result of starting a phase
-                benesh_end_phases(bnh);
+                //benesh_end_phases(bnh);
                 break;
             }
 
@@ -3566,6 +3584,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
         dom = malloc(sizeof(*dom));
         dom->type = BNH_DOM_MESH;
         dom->comm_type = BNH_COMM_RDV_CLI;
+        dom->name = strdup(dom_name);
         comp = malloc(sizeof(*comp));
         bnh->dummy_dom = dom;
         bnh->dummy_comp = comp;
@@ -3627,6 +3646,8 @@ void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, 
     char num_str[32];
     int i, found;
 
+    DEBUG_OUT("binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
+
     if(bnh->dummy) {
         var = get_or_create_new_dummy(bnh, var_name);
         dom = bnh->dummy_dom;
@@ -3672,6 +3693,8 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
     char *field_name;
     char num_str[32];
     int i, found;
+
+    DEBUG_OUT("dummy binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
     if(bnh->dummy) {
         comp = bnh->dummy_comp;
