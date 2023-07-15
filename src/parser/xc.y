@@ -36,12 +36,13 @@
 %token INDENT OUTDENT NEWLINE
 %token OEXPR CLEXPR
 %token NEG
+%token INJ
 
 %type <val> ivalclose ivalopen
 
 %type <ptr> arglist array asgexpr cardinality compdecl component
 %type <ptr> dasgattr dasgattrlist dasgstmt domblock dombody
-%type <ptr> domsubdecl expr exprblk idrange intfblock intfbody
+%type <ptr> domsubdecl expr exprblk idrange injexpr intfblock intfbody
 %type <ptr> ival intfsubdecl methexpr methname methodblk methoddecl 
 %type <ptr> methodsubdecl numlist objname objtransform pbblk
 %type <ptr> pointblock pqcslist pqexpr pqlist pqobj pqpart range
@@ -850,6 +851,10 @@ expr :
     tfrexpr {
         $$ = xc_new_list_node($1, XC_NODE_EXPR);
     }
+    |
+    injexpr {
+        $$ = xc_new_list_node($1, XC_NODE_EXPR);   
+    }
     ;
 
 methexpr :
@@ -958,6 +963,12 @@ tfrexpr :
         $$ = xc_new_expr($1, rhs, XC_EXPR_MXFR);
     }
     ;
+
+injexpr :
+    INJ ID ID {
+        $$ = xc_new_expr($2, $3, XC_EXPR_INJ);
+    }
+    ;  
 
 objtransform:
     methexpr {

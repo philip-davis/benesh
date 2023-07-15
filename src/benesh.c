@@ -139,6 +139,7 @@ struct obj_entry {
 #define BNH_SUBRULE_MTH 3
 #define BNH_SUBRULE_MPUB 4
 #define BNH_SUBRULE_MSUB 5
+#define BNH_SUBRULE_INJ 6
 
 struct var_ver {
     int var_id;
@@ -152,6 +153,7 @@ struct sub_rule {
     union {
         int var_id;
         int mth_id;
+        char *inj_id;
     };
     int num_invar;
     struct var_ver *invars;
@@ -303,6 +305,7 @@ struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
 struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
                          int comp_id, int *var_id);
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
+static struct wf_var *match_local_ifvar(struct benesh_handle *bnh, const char *var_name);
 
 struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
                            int nmappings, char **map_names, int64_t *vals)
@@ -2108,6 +2111,14 @@ static int benesh_load_targets(struct benesh_handle *bnh)
                 if(wtgt->subrule[j].comp_id == -1) {
                     fprintf(stderr, "ERROR: unknown component '%s' for first source.\n", comp_name);
                 }
+            case XC_EXPR_INJ:
+                wtgt->subrule[j].type = BNH_SUBRULE_INJ;
+                comp_name = expr->comp_name;
+                wtgt->subrule[j].comp_id = find_comp_idx_by_name(bnh, comp_name);
+                if(wtgt->subrule[j].comp_id == -1) {
+                    fprintf(stderr, "ERROR: unknown component '%s' for injection.\n", comp_name);
+                }
+                wtgt->subrule[j].inj_id = expr->inj_id;
             }
         }
     }
@@ -2933,6 +2944,63 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     APEX_TIMER_STOP(0);
 }
 
+//tmp
+#define BNH_INJ_SEND 0
+#define BNH_INJ_RECV 1
+
+void send_field_by_name(struct benesh_handle *bnh, const char *fname)
+{
+    struct field_handle *field;
+    struct wf_var *var;
+    int i;
+
+    var = match_local_ifvar(bnh, fname);
+    for(i = 0; i < var->num_fields; i++) {
+        field = var->fields[i];
+        cpl_send_field(field);
+    }
+}
+
+void send_list(struct benesh_handle *bnh, struct wf_component *comp, char **list, int len)
+{
+    int i; 
+
+    app_begin_send_phase(comp->cpl_apph);
+    for(i = 0; i < len; i++) {
+        send_field_by_name(bnh, list[i]);
+    }
+    app_end_send_phase(comp->cpl_apph);
+}
+
+void do_inject(struct benesh_handle *bnh, struct sub_rule *subrule)
+{
+    char *inj_id = subrule->inj_id;
+    char id1 = inj_id[0];
+    int id2 = atoi(&inj_id[1]);
+    struct wf_var *var;
+    struct wf_domain *dom;
+    struct field_handle *field;
+    struct wf_component *comp;
+    int i, j;
+
+    switch(id1) {
+        case 'a':
+            switch(id2) {
+                case 0:
+                    char *flist[] = {"psi", "gid_debug"};
+                    comp = &bnh->comps[bnh->comp_id];
+                    send_list(bnh, comp, flist, 2); 
+                    break;
+                case 1:
+                    
+                    break;
+            }
+
+    }
+
+    DEBUG_OUT("injection signature: %i, %i\n", id1, id2);
+}
+
 int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
@@ -2957,9 +3025,13 @@ int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
         break;
     case BNH_SUBRULE_SUB:
         DEBUG_OUT("subrule is a subscribe event\n");
-        return (check_sub(bnh, wnode));
+        return(check_sub(bnh, wnode));
+    case BNH_SUBRULE_INJ:
+        DEBUG_OUT("subrule is an injection event\n");
+        do_inject(bnh, subrule);
+        break;
     default:
-        fprintf(stderr, "ERROR: unkown subrule type.\n");
+        fprintf(stderr, "ERROR: unknown subrule type.\n");
     }
     APEX_TIMER_STOP(0);
     return (1);
@@ -3043,7 +3115,7 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
         ABT_mutex_unlock(bnh->work_mutex);
         break;
     default:
-        fprintf(stderr, "ERROR: unkown work entry type.\n");
+        fprintf(stderr, "ERROR: unknown work entry type.\n");
     }
     APEX_TIMER_STOP(0);
 

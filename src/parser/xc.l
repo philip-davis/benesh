@@ -156,6 +156,9 @@ id  [A-Za-z_][A-Za-z0-9_\\]*
 
     return(INTF);
 }
+<normal>\*\*\* {
+    return(INJ);
+}
 <normal>domain {
 
     return(DOMAIN);

@@ -940,9 +940,13 @@ struct xc_expr *xc_new_expr(void *left, void *right, xc_expr_t type)
 
     //TODO: should be a switch statement to guarantee alignemnt of union
     expr->type = type;
-    expr->lhs = left;
-    expr->rhs = right;
-
+    if(type == XC_EXPR_INJ) {
+        expr->comp_name = strdup(left);
+        expr->inj_id = strdup(right);
+    } else {
+        expr->lhs = left;
+        expr->rhs = right;
+    }
     return (expr);
 }
 

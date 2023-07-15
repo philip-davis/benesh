@@ -183,7 +183,7 @@ struct xc_minst {
     struct xc_list_node *params;
 };
 
-typedef enum xc_expr_t { XC_EXPR_METHOD, XC_EXPR_ASG, XC_EXPR_XFR, XC_EXPR_MXFR } xc_expr_t;
+typedef enum xc_expr_t { XC_EXPR_METHOD, XC_EXPR_ASG, XC_EXPR_XFR, XC_EXPR_MXFR, XC_EXPR_INJ } xc_expr_t;
 
 struct xc_expr {
     xc_expr_t type;
@@ -191,11 +191,13 @@ struct xc_expr {
         struct xc_minst *minst;
         struct xc_minst *lhs;
         struct xc_minst *tgt;
+        char *comp_name;
     };
     union {
         struct xc_pqexpr *rhs;
         struct xc_minst *src;
         struct xc_obj_fusion *msrc;
+        char *inj_id;
     };
 };
 
