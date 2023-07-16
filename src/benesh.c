@@ -2146,9 +2146,13 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     struct margo_init_info mii = {0};
     int i;
 
+    *handle = bnh;
+
     if(envdebug) {
         bnh->f_debug = 1;
     }
+
+    bnh->name = strdup(name);
 
     if(gcomm == MPI_COMM_NULL) {
         bnh->mycomm = gcomm;
@@ -2183,7 +2187,6 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
         margo_set_log_level(bnh->mid, MARGO_LOG_TRACE);
     }
     APEX_TIMER_STOP(1);
-    bnh->name = strdup(name);
 
     APEX_NAME_TIMER_START(2, "dspaces init");
     DEBUG_OUT("initializing dataspaces...\n");
@@ -2249,7 +2252,6 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     bnh->ready = 1;
     DEBUG_OUT("ready for workflow processing.\n");
 
-    *handle = bnh;
     APEX_TIMER_STOP(0);
 
     return(0);
@@ -3475,6 +3477,10 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     int i;
 
     DEBUG_OUT("starting touchpoint processing for %s\n", tpname);
+    if(bnh->dummy) {
+        DEBUG_OUT("finished dummy touchpoint processing for %s\n", tpname);
+        return;
+    }
     APEX_FUNC_TIMER_START(benesh_tpoint);
 
     tk_tpoint = tokenize_tpoint(tpname, &tkcnt);
@@ -3742,7 +3748,10 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
     struct wf_domain *dom;
     struct wf_component *comp;
 
+    DEBUG_OUT("binding domain %s to support opaque fields.\n", dom_name);
+
     if(bnh->dummy) {
+        DEBUG_OUT("I have a dummy handle. Allocate minimal structures for later field bindings.\n");
         dom = malloc(sizeof(*dom));
         dom->type = BNH_DOM_MESH;
         dom->comm_type = BNH_COMM_RDV_CLI;
@@ -3751,6 +3760,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
         bnh->dummy_dom = dom;
         bnh->dummy_comp = comp;
     } else {
+        DEBUG_OUT("I am a full-fledged handle.\n");
         dom = match_domain(bnh, dom_name);
         comp = &bnh->comps[bnh->comp_id];
     }
@@ -3780,17 +3790,24 @@ static struct wf_var *get_or_create_new_dummy(struct benesh_handle *bnh, const c
     struct wf_var *var = NULL;
     int i;
 
+    DEBUG_OUT("get or create %s\n", var_name);
+
     for(i = 0; i < bnh->num_dummy_vars; i++) {
         var = &bnh->dummy_vars[i];
         if(strcmp(var->name, var_name) == 0) {
+            DEBUG_OUT("returning existing dummy var\n");
             return(var);
         }
     }
+
+    DEBUG_OUT("dummy var %s doesn't already exist. Creating new...\n", var_name);
     bnh->dummy_vars = realloc(bnh->dummy_vars,
                 (bnh->num_dummy_vars+1) * sizeof(*bnh->dummy_vars));
     var = &bnh->dummy_vars[bnh->num_dummy_vars++];
     var->name = strdup(var_name);
     var->num_fields = 0;
+    var->fields = NULL;
+    DEBUG_OUT("done creating new var\n");
 
     return(var);
 }
@@ -3859,6 +3876,7 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
     DEBUG_OUT("dummy binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
     if(bnh->dummy) {
+        DEBUG_OUT("I am, myself, a dummy handle.\n")
         comp = bnh->dummy_comp;
         var = get_or_create_new_dummy(bnh, var_name);
         dom = bnh->dummy_dom;
@@ -3875,14 +3893,17 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
     // TODO: drop client assumption
 
     if(idx >= 0) {
+        DEBUG_OUT("a non-negative index was passed...add this to the field name.\n");
         sprintf(num_str, "%i", idx);
         field_name = malloc(strlen(var_name) + strlen(num_str) + 2);
         sprintf(field_name, "%s_%s", var_name, num_str);
     } else {
         field_name = strdup(var_name);
     }
+    DEBUG_OUT("field name is %s\n", field_name);
     adpt = create_dummy_adapter(comp->cpl_apph, field_name);
     field = cpl_add_field(dom->cph, "server", field_name, participates);
+    DEBUG_OUT("add new field to variable\n");
     add_var_field(bnh, var, field);
 
     free(field_name);
