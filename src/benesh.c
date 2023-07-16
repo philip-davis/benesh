@@ -300,6 +300,8 @@ void print_work_node_nl(FILE *stream, struct benesh_handle *bnh,
 void print_object(FILE *stream, struct wf_target *rule, int64_t *map_vals);
 void print_object_nl(FILE *stream, struct wf_target *rule, int64_t *map_vals);
 
+static int signal_status(struct benesh_handle *bnh, int leaving);
+
 int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
 struct wf_var *get_gvar(struct benesh_handle *bnh, const char *name);
 struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
@@ -307,8 +309,9 @@ struct wf_var *get_ifvar(struct benesh_handle *bnh, const char *name,
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode);
 static struct wf_var *match_local_ifvar(struct benesh_handle *bnh, const char *var_name);
 
-struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
-                           int nmappings, char **map_names, int64_t *vals)
+static void signal_minmax(struct benesh_handle *bnh, unsigned int signal, int *min, int *max);
+
+struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, int nmappings, char **map_names, int64_t *vals)
 {
     struct pq_obj *res_obj;
     int obj_len = xc_obj_len(obj);
@@ -2779,7 +2782,7 @@ void overlap_offset(struct wf_domain *loc_dom, struct wf_domain *glob_dom,
     }
 }
 
-void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
+int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
     struct sub_rule *prule = &tgt->subrule[wnode->subrule - 1];
@@ -2792,6 +2795,7 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
     struct field_handle *field;
     struct app_hndl *apph;
     double *goff_lb, *goff_ub;
+    int signal, smin, smax;
     int i;
 
     DEBUG_OUT("publishing variable %s to %s\n", src_var->name, dst_comp->name);
@@ -2804,10 +2808,22 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
             src_dom->comm_type == BNH_COMM_RDV_CLI) {
         // TODO this is not the right way to do this
         if(src_dom->comm_type == BNH_COMM_RDV_CLI) {
+            signal = 1;
             apph = bnh->comps[bnh->comp_id].cpl_apph;
         } else {
+            signal = (2 * srule->comp_id) + 1;
             apph = dst_comp->cpl_apph;
         }
+        do {
+            signal_minmax(bnh, signal, &smin, &smax);
+            if(smin == 0) {
+                DEBUG_OUT("bailing before starting a send to avoid deadlock!\n");
+                return(3);
+            } else if(smin < signal) {
+                DEBUG_OUT("requeuing send to prevent deadlock\n");
+                return(0);
+            }
+        } while(smax > signal);
         DEBUG_OUT("doing a field transfer (app %p)\n", (void *)apph);
         dst_comp->send_phase_open = 0; //DEBUG!!!!
         if(dst_comp->send_phase_open == 0) {
@@ -2829,6 +2845,8 @@ void handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
                     goff_ub);
     }
+
+    return(1);
 }
 
 int handle_sub(struct benesh_handle *bnh, struct work_node *wnode)
@@ -2876,14 +2894,34 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     struct app_hndl *apph;
     struct field_handle *field;
     size_t num_elem;
+    int signal, smin, smax;
     int i;
 
     DEBUG_OUT("getting %s from %s\n", dst_var->name, src_comp->name);
     if(dst_dom->comm_type == BNH_COMM_RDV_CLI) {
+        signal = 2;
         apph = bnh->comps[bnh->comp_id].cpl_apph;
     } else {
+        signal = 2 * (prule->comp_id + 1);
         apph = src_comp->cpl_apph;
     }
+    do {
+        signal_minmax(bnh, signal, &smin, &smax);
+        if(smin == 0) {
+            // some other rank has left the work handling loop.
+            // if they enter a Barrier before returning, we'll
+            // be deadlocked. Better bail.
+            DEBUG_OUT("bailing before starting a recv to avoid deadlock!\n");
+            return(3);
+        } else if(smin < signal) {
+            /* different ranks are trying to start different
+             * communication phases. All but the lowest id
+             * should requeue
+             */
+            DEBUG_OUT("requeuing recv to avoid deadlock.\n");
+            return(0);  
+        } 
+    } while(smax > signal);
     src_comp->recv_phase_open = 0; //DEBUG!!!
     if(src_comp->recv_phase_open == 0) {
         DEBUG_OUT("Starting receive phase (apph %p)\n", (void *)apph);
@@ -2918,7 +2956,7 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
         dom = dst_var->dom;
         if(dom->comm_type == BNH_COMM_RDV_SRV ||
            dom->comm_type == BNH_COMM_RDV_CLI) {
-            return (get_with_redev(bnh, wnode));
+            return(get_with_redev(bnh, wnode));
         } else {
             APEX_NAME_TIMER_START(1, "data_lock_csa");
             ABT_mutex_lock(bnh->data_mutex);
@@ -3021,8 +3059,7 @@ int handle_subrule(struct benesh_handle *bnh, struct work_node *wnode)
         break;
     case BNH_SUBRULE_PUB:
         DEBUG_OUT("subrule is a publish event\n");
-        handle_pub(bnh, wnode);
-        break;
+        return(handle_pub(bnh, wnode));
     case BNH_SUBRULE_SUB:
         DEBUG_OUT("subrule is a subscribe event\n");
         return(check_sub(bnh, wnode));
@@ -3079,7 +3116,7 @@ static int deps_met(struct benesh_handle *bnh, struct wf_target *tgt,
 static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct work_node *link;
-
+    int result;
 
     APEX_FUNC_TIMER_START(handle_work);
     switch(wnode->type) {
@@ -3105,9 +3142,14 @@ static int handle_work(struct benesh_handle *bnh, struct work_node *wnode)
         break;
     case BNH_WORK_CHAIN:
         for(link = wnode->link; link->next; link = link->next) {
-            if(!handle_work(bnh, link)) {
-                wnode->next = link; // memory leak
+            result = handle_work(bnh, link);
+            if(result == 0) {
+                wnode->link = link; // memory leak
                 return (0);
+            } else if(result == 3) {
+                wnode->link = link; // memory leak
+                DEBUG_OUT("bailed out of subrule handling...\n");
+                return(3);
             }
         }
         ABT_mutex_lock(bnh->work_mutex);
@@ -3237,11 +3279,39 @@ static void benesh_end_phases(struct benesh_handle *bnh)
     }
 }
 
-void benesh_handle_work(struct benesh_handle *bnh)
+/*
+static int signal_status(struct benesh_handle *bnh, int leaving)
+{
+    static int sigid = 0;
+    DEBUG_OUT("signal %i status is %i\n", sigid++, leaving);
+    MPI_Allreduce(MPI_IN_PLACE, &leaving, 1, MPI_INT, MPI_MIN, bnh->mycomm);
+    return(leaving);
+}
+*/
+
+static void signal_minmax(struct benesh_handle *bnh, unsigned int signal, int *min, int *max) 
+{
+    static int sigid = 0;
+    int sendbuf[2] = {signal, -signal};
+    int recvbuf[2];
+
+    DEBUG_OUT("signal %i status is %i\n", sigid++, signal);
+    MPI_Allreduce(sendbuf, recvbuf, 2, MPI_INT, MPI_MIN, bnh->mycomm);
+    if(min) {
+        *min = recvbuf[0];
+    }
+    if(max) {
+        *max = -recvbuf[1];
+    }
+}
+
+int benesh_handle_work(struct benesh_handle *bnh)
 {
     struct work_node *wnode;
     struct obj_entry *ent;
     int handled = 0;
+    int result = 0;
+    int bail = 0;
 
     APEX_FUNC_TIMER_START(benesh_handle_work);
 
@@ -3264,11 +3334,12 @@ void benesh_handle_work(struct benesh_handle *bnh)
         handled++;
         wnode = deque_work(bnh);
         ABT_mutex_unlock(bnh->work_mutex);
-        if(!handle_work(bnh, wnode)) {
+        result = handle_work(bnh, wnode);
+        if(result == 0) {
             ABT_mutex_lock(bnh->work_mutex);
             benesh_make_active(bnh, wnode);
             ABT_mutex_unlock(bnh->work_mutex);
-        } else {
+        } else if(result == 1) {
             switch(wnode->type) {
             case BNH_WORK_OBJ:
                 DEBUG_OUT("cleanup from object completion\n");
@@ -3302,19 +3373,31 @@ void benesh_handle_work(struct benesh_handle *bnh)
             } else {
                 DEBUG_OUT("not announcing work completion.\n")
             }
+        } else if(result == 3) {
+            ABT_mutex_lock(bnh->work_mutex);
+            benesh_make_active(bnh, wnode);
+            ABT_mutex_unlock(bnh->work_mutex);
+            DEBUG_OUT("canceling work handling loop with active work because some othe rank thinks we're done.\n");
+            bail = 1;
+            break;
         }
         APEX_NAME_TIMER_START(5, "lock_work_bhwc");
         ABT_mutex_lock(bnh->work_mutex);
         APEX_TIMER_STOP(5);
     }
     ABT_mutex_unlock(bnh->work_mutex);
-
+    /*
+    if(!bail) {
+        signal_minmax(bnh, 0, NULL, NULL);
+    }
+    */
     DEBUG_OUT("handled %i work nodes\n", handled);
 
     APEX_TIMER_STOP(0);
+    return(bail);
 }
 
-static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
+static int do_tpoint_rule(struct benesh_handle *bnh, struct tpoint_rule *rule,
                            int64_t *tp_vars)
 {
     struct pq_obj **fq_tgt = malloc(sizeof(*fq_tgt) * rule->num_tgts);
@@ -3323,6 +3406,7 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
     char **map;
     int64_t *map_vals;
     int found;
+    int bail = 0, handle = 0;
     int i, j;
 
     APEX_FUNC_TIMER_START(tpoint_finished);
@@ -3359,14 +3443,21 @@ static int tpoint_finished(struct benesh_handle *bnh, struct tpoint_rule *rule,
         //  so the different targets should be being generated in parallel, not
         //  series. However, so far we only ever have one target per touchpoint.
         while(!object_realized(bnh, tgt_rule, map_vals)) {
-            benesh_handle_work(bnh);
+            if(bail) {
+                fprintf(stderr, "ERROR: we already bailed on the work handler because a different rank thinks we're done. But we're not done! This will probably cause a deadlock.\n");
+            }
+            handle = 1;
+            bail = benesh_handle_work(bnh);
         }
+        if(!bail) {
+            signal_minmax(bnh, 0, NULL, NULL);
+        }
+
         free(map);
         free(map_vals);
         free(fq_tgt);
     }
     APEX_TIMER_STOP(0);
-    return (1);
 }
 
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
@@ -3379,6 +3470,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     int rule_id;
     struct tpoint_rule **rulep = &tph->rules;
     int64_t *values;
+    int res;
     int found = 0;
     int i;
 
@@ -3413,9 +3505,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     } while(rule->rule);
     APEX_TIMER_STOP(1);
 
-    while(!tpoint_finished(bnh, rule, values)) {
-        benesh_handle_work(bnh);
-    }
+    do_tpoint_rule(bnh, rule, values);
 
     DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
 
