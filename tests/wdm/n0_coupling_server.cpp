@@ -135,7 +135,6 @@ void SendRecvDensity(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis&
     
     // Gather
     sprintf(tpname, "gather_density.%i", step);
-    std::cout << "tpoint: " << tpname << std::endl;
     benesh_tpoint(bnh, tpname);
      
     auto sr_time2 = std::chrono::steady_clock::now();
@@ -157,7 +156,6 @@ void SendRecvDensity(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysis&
     ts::timeMinMaxAvg(elapsed_seconds.count(), min, max, avg);
     if(!rank) ts::printTime("Average Density", min, max, avg);
     sprintf(tpname, "scatter_density.%i", step);
-    std::cout << "tpoint: " << tpname << std::endl;
     benesh_tpoint(bnh, tpname);
     auto sr_time3 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time3-sr_time1;
@@ -174,7 +172,6 @@ void SendRecvPotential(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysi
 
     // Gather
     sprintf(tpname, "get_potential.%i", step);
-    std::cout << "tpoint: " << tpname << std::endl;
     benesh_tpoint(bnh, tpname);
     
     auto sr_time4 = std::chrono::steady_clock::now();
@@ -193,7 +190,6 @@ void SendRecvPotential(benesh_app_id bnh, XGCAnalysis& core_analysis, XGCAnalysi
     if(!rank) ts::printTime("Copy Potential", min, max, avg);
    
     sprintf(tpname, "send_potential.%i", step); 
-    std::cout << "tpoint: " << tpname << std::endl;
     benesh_tpoint(bnh, tpname);
     auto sr_time6 = std::chrono::steady_clock::now();
     elapsed_seconds = sr_time6-sr_time5;
