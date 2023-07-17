@@ -3023,21 +3023,6 @@ void do_inject(struct benesh_handle *bnh, struct sub_rule *subrule)
     struct wf_component *comp;
     int i, j;
 
-    switch(id1) {
-        case 'a':
-            switch(id2) {
-                case 0:
-                    char *flist[] = {"psi", "gid_debug"};
-                    comp = &bnh->comps[bnh->comp_id];
-                    send_list(bnh, comp, flist, 2); 
-                    break;
-                case 1:
-                    
-                    break;
-            }
-
-    }
-
     DEBUG_OUT("injection signature: %i, %i\n", id1, id2);
 }
 
@@ -3685,6 +3670,8 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
 
     DUMMY_OUT(0);
 
+    DEBUG_OUT("binding var %s\n", var_name);
+
     if(idx_len > 1) {
         fprintf(stderr, "ERROR: one or zero variable index integers permitted for now.\n");
         return(NULL);
@@ -3725,14 +3712,16 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
     } else {
         field_name = tmp_vname;
     }
+    DEBUG_OUT("field name is %s\n", field_name);
     adapt_name = malloc(strlen(app_name) + strlen(field_name) + 2);
     sprintf(adapt_name, "%s/%s", app_name, field_name);
-
+    DEBUG_OUT("adapter name is %s\n", adapt_name);
     //TODO data type
     adpt = create_omegah_adapter(comp->cpl_apph, field_name, adapt_name, dom->mesh, BNH_CPL_DOUBLE);
+    DEBUG_OUT("created adapter\n");
     field = cpl_add_field(dom->cph, app_name, field_name, 1);
+    DEBUG_OUT("added field\n");
     add_var_field(bnh, var, field);
-
     if(idx_len == 1) {
         free(field_name);
     }

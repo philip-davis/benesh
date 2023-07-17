@@ -35,8 +35,9 @@ target_include_directories(bredev_oh PRIVATE
 target_compile_options(bredev_oh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(bredev_oh ${MPI_CXX_LIBRARIES} ${MPI_CXX_LINK_FLAGS} benesh redev::redev adios2::adios2 Omega_h::omega_h Kokkos::kokkos)
 
+
 add_executable(proxy_couple wdmcpl/test_proxy_coupling.cpp wdmcpl/test_support.cpp)
-set_property(TARGET proxy_couple  PROPERTY CXX_STANDARD 20)
+set_property(TARGET proxy_couple  PROPERTY CXX_STANDARD 17)
 target_include_directories(proxy_couple PRIVATE
     ${MPI_CXX_INCLUDE_PATH}
 )

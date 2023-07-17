@@ -227,7 +227,8 @@ void omegah_coupler(benesh_app_id bnh, MPI_Comm comm, const char *meshFile,
   edge_analysis.psi = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "psi\\edge", NULL, 0);
   core_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\core",NULL,  0);
   edge_analysis.gids = (wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "gid_debug\\edge",NULL,  0);
-
+  std::cerr << "ADDED POTENTIAL FIELDS\n";
+ 
   for (int i = 0; i < nphi; ++i) {
     //bind vars with benesh
     core_analysis.dpot[0].push_back((wdmcpl::ConvertibleCoupledField *)benesh_bind_var_mesh(bnh, "dpot_0_plane\\core", &i, 1));

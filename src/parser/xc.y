@@ -1064,7 +1064,9 @@ struct xc_config *xc_fparse(const char *fname, MPI_Comm comm)
     if(!rank) {
         conf_file = fopen(fname, "rb");
         if(!conf_file) {
-            perror("Could not open Benesh configuration file");
+            char errstr[256];
+            sprintf(errstr, "could not open the Benesh configuration file '%s'", fname);
+            perror(errstr);
             return(NULL);
         }
         fread(fbuf, 1, st.st_size, conf_file);

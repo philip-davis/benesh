@@ -253,7 +253,6 @@ extern "C" struct field_adapter *create_omegah_adapter(struct app_hndl *app_h, c
     struct field_adapter *adpt_h = new struct field_adapter;
     adpt_h->srv_adpt = new ServerAdapterVariant{};
     adpt_h->data_type = data_type;
-    std::cerr << "creating omegah adapter with " << path << " for " << name <<  std::endl;
     switch(data_type) {
         /*
         case BNH_CPL_FLOAT:
