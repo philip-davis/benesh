@@ -164,7 +164,7 @@ int main(int argc, char **argv)
     APEX_TIMER_STOP(2);
     init_var(varU, &dom);
 
-    dt = benesh_get_var_val(bnh, "dt");
+    benesh_get_var_rval(bnh, "dt", &dt);
 
     maxts = 5;
 

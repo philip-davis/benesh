@@ -4440,18 +4440,23 @@ void *benesh_get_var_buf(struct benesh_handle *bnh, const char *var_name, uint64
     return (var->buf);
 }
 
-double benesh_get_var_val(struct benesh_handle *bnh, const char *var_name)
+int benesh_get_var_rval(struct benesh_handle *bnh, const char *var_name, benesh_real_t *val)
 {
     struct wf_var *var;
 
     if(bnh->dummy) {
         fprintf(stderr, "WARNING: requested workflow value '%s' from dummy handle.\n", var_name);
-        return(0);
+        return(-1);
     }
 
     var = get_gvar(bnh, var_name);
+    if(!var) {
+        return(-1);
+    }
 
-    return (var->val);
+    *val = var->val; 
+
+    return(0);
 }
 
 void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name)
