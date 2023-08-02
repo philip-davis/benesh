@@ -89,7 +89,7 @@ void client(const char *meshFileName, int clientId, const char *cpnFileName)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     ss << "client" << clientId;
     
-    benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
+    benesh_init(ss.str().c_str(), "omegah.xc", MPI_COMM_WORLD, 0, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
     benesh_bind_method(bnh, "gen_data", b_gen_data, NULL);
     benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
@@ -114,7 +114,7 @@ void server(const char *meshFileName, const char *cpnFileName)
     benesh_app_id bnh;
     char timer_str[100];
 
-    benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 1, &bnh);
+    benesh_init("coupler", "omegah.xc", MPI_COMM_WORLD, 0, 1, &bnh);
     nonstd::span<uint64_t> msg = bind_data(bnh, meshFileName, cpnFileName);
     benesh_bind_method(bnh, "field_transfer", b_field_transfer, NULL);
     int rank;

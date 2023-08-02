@@ -6,22 +6,27 @@ module benesh
     end type
 
 contains
-    subroutine benesh_init(comp_name, conf_file, comm, do_wait, handle, ierr)
+    subroutine benesh_init(comp_name, conf_file, comm, is_dummy, do_wait, handle, ierr)
         character*(*), intent(in) :: comp_name
         character*(*), intent(in) :: conf_file
         integer, intent(in) :: comm
-        logical, intent(in) :: do_wait
+        logical, intent(in) :: is_dummy, do_wait
         type(benesh_app_id), intent(out) :: handle
         integer, intent(out) :: ierr
         integer :: wait_arg
             
+        if(is_dummy) then
+            dummy_arg = 1
+        else
+            dummy_arg = 0
+        endif
         if(do_wait) then
             wait_arg = 1
         else
             wait_arg = 0
         end if
 
-        call benesh_init_f2c(comp_name // C_NULL_CHAR, conf_file // C_NULL_CHAR, comm, wait_arg, handle%handle, ierr)
+        call benesh_init_f2c(comp_name // C_NULL_CHAR, conf_file // C_NULL_CHAR, comm, dummy_arg, wait_arg, handle%handle, ierr)
     end subroutine
 
     subroutine benesh_fini(handle)
@@ -44,7 +49,8 @@ contains
         type(C_PTR), intent(in) :: buffer
         type(C_PTR), intent(out) :: field
 
-        call benesh_bind_field_mpient_f2c(handle%handle, name // C_NULL_CHAR, index, rcn_file // C_NULL_CHAR, comm, buffer, length, participates, field)
+        call benesh_bind_field_mpient_f2c(handle%handle, name // C_NULL_CHAR, index, rcn_file // C_NULL_CHAR, comm, &
+                                            buffer, length, participates, field)
     end subroutine
 
     subroutine benesh_bind_field_dummy(handle, name, index, participates, field)

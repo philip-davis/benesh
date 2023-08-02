@@ -132,7 +132,7 @@ int main(int argc, char **argv)
     pdim.yrank = yrank;
     pdim.yranks = yranks;
 
-    benesh_init(app_name, "heateq2d.xc", MPI_COMM_WORLD, 1, &bnh);
+    benesh_init(app_name, "heateq2d.xc", MPI_COMM_WORLD, 0, 1, &bnh);
     APEX_NAME_TIMER_START(2, "domain config");
     benesh_get_var_domain(bnh, "u", &dom_name, &ndim, &dom_lb, &dom_ub);
     if(ndim != 2) {

@@ -9,10 +9,10 @@ extern "C" {
 
 void FC_GLOBAL(benesh_init_f2c,
         BENESH_INIT_F2C)(const char *comp_name, const char *conf_file,
-                            int *fcomm, int *do_wait, benesh_app_id *bnh, int *ierr)
+                            int *fcomm, int *is_dummy, int *do_wait, benesh_app_id *bnh, int *ierr)
 {
     MPI_Comm comm = MPI_Comm_f2c(*fcomm);
-    *ierr = benesh_init(comp_name, conf_file, comm, *do_wait, bnh); 
+    *ierr = benesh_init(comp_name, conf_file, comm, *is_dummy, *do_wait, bnh); 
 }
 
 void FC_GLOBAL(benesh_fini_f2c,

@@ -44,7 +44,7 @@
             ABT_thread_self_id(&tid);                                          \
             fprintf(                                                           \
                 stderr, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): " dstr,   \
-                bnh->rank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__);  \
+                bnh->grank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__);  \
         }                                                                      \
     } while(0);
 
@@ -245,9 +245,13 @@ struct wf_method {
 
 struct benesh_handle {
     int rank;
+    int grank;
     int comm_size;
     ekt_id ekth;
     MPI_Comm mycomm;
+    MPI_Comm gcomm;
+    int root_rank;
+    int root_drank;
     char *name;
     struct xc_config *conf;
     struct tpoint_handle *tph;
@@ -1012,6 +1016,10 @@ static int work_watch(void *work_v, void *bnh_v)
 
     ABT_mutex_unlock(bnh->db_mutex);
     activate_subs(bnh, &wnode);
+    // activate_subs only signals the handler if some sub is satsified. This object being
+    // realized may mean we are done with a touchpoint.
+    DEBUG_OUT("Signalling handler to restart\n");
+    ABT_cond_signal(bnh->work_cond);
     APEX_TIMER_STOP(0);
 
     return (0);
@@ -1324,7 +1332,7 @@ static void benesh_load_config(struct benesh_handle *bnh, const char *conf)
         DEBUG_OUT("reading workflow configuration from %s...\n", conf);
     }
     APEX_FUNC_TIMER_START(benesh_load_config);
-    bnh->conf = xc_fparse(conf, bnh->mycomm);
+    bnh->conf = xc_fparse(conf, bnh->gcomm);
     APEX_TIMER_STOP(0);
 }
 
@@ -1470,15 +1478,18 @@ static void benesh_init_comps(struct benesh_handle *bnh)
         if_var += var_count;
         DEBUG_OUT("We are %s\n", bnh->name);
         if(strcmp(comp->app, bnh->name) != 0) {
-            DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
-            ekt_connect(bnh->ekth, comp->app);
-            if(strcmp(comp->name, "Coupler") == 0) {
-                DEBUG_OUT("We are talking to rdv\n");
-                bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
-            } else if(strstr(comp->name, "Client") == 0) {
-                DEBUG_OUT("We are rdv\n");
-                bnh->rdvRanks = bnh->comm_size;
+            if(!bnh->dummy) {
+                DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
+                ekt_connect(bnh->ekth, comp->app);
+                if(strcmp(comp->name, "Coupler") == 0) {
+                    DEBUG_OUT("We are talking to rdv\n");
+                    bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
+                } else if(strstr(comp->name, "Client") == 0) {
+                    DEBUG_OUT("We are rdv\n");
+                    bnh->rdvRanks = bnh->comm_size;
+                }
             }
+            MPI_Bcast(&bnh->rdvRanks, 1, MPI_INT, bnh->root_rank, bnh->gcomm);
             if(bnh->rdvRanks) {
                 DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
             }
@@ -2133,7 +2144,32 @@ static int benesh_load_targets(struct benesh_handle *bnh)
     return(0);
 }
 
-int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
+static void benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm, int dummy)
+{
+    MPI_Comm_dup(gcomm, &bnh->gcomm);
+    MPI_Comm_rank(gcomm, &bnh->grank);
+    MPI_Comm_split(gcomm, dummy, bnh->grank, &bnh->mycomm);
+    DEBUG_OUT("did split\n");
+    MPI_Comm_rank(bnh->mycomm, &bnh->rank);
+    MPI_Comm_size(bnh->mycomm, &bnh->comm_size);
+    DEBUG_OUT("I have global rank %i and subgroup rank %i\n", bnh->grank, bnh->rank);
+    bnh->root_rank = bnh->root_drank = -1;
+    if(bnh->rank == 0) {
+        if(dummy) {
+            bnh->root_drank = bnh->grank;
+        } else {
+            bnh->root_rank = bnh->grank;
+        }
+    }
+    DEBUG_OUT("doing reductions to find roots\n");
+    MPI_Allreduce(MPI_IN_PLACE, &bnh->root_drank, 1, MPI_INT, MPI_MAX, bnh->gcomm);
+    MPI_Allreduce(MPI_IN_PLACE, &bnh->root_rank, 1, MPI_INT, MPI_MAX, bnh->gcomm);
+
+    DEBUG_OUT("Rank %i is root of the dummies, rank %i is normal root.\n", bnh->root_drank, bnh->root_rank);
+    
+}
+
+int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, int wait,
                 struct benesh_handle **handle)
 {
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
@@ -2153,12 +2189,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     }
 
     bnh->name = strdup(name);
-
-    if(gcomm == MPI_COMM_NULL) {
-        bnh->mycomm = gcomm;
-        bnh->dummy = 1;
-        return(0);
-    }
+    bnh->dummy = dummy;
 
     if(envna) {
         DEBUG_OUT("using '%s' for NA string\n", envna);
@@ -2169,9 +2200,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     }
 
     APEX_FUNC_TIMER_START(benesh_init);
-    MPI_Comm_dup(gcomm, &bnh->mycomm);
-    MPI_Comm_rank(bnh->mycomm, &bnh->rank);
-    MPI_Comm_size(bnh->mycomm, &bnh->comm_size);
+    benesh_init_mpi(bnh, gcomm, dummy);
 
     APEX_NAME_TIMER_START(1, "margo init");
     DEBUG_OUT("initializing margo...\n");
@@ -2193,18 +2222,20 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     //dspaces_init_mpi(bnh->mycomm, &bnh->dsp);
     APEX_TIMER_STOP(2);
     APEX_NAME_TIMER_START(3, "ekt init");
-    DEBUG_OUT("initializing EKT...\n");
-    ekt_init(&bnh->ekth, name, bnh->mycomm, bnh->mid);
-    ekt_register(bnh->ekth, BENESH_EKT_WORK, serialize_work, deserialize_work,
+    if(!bnh->dummy) {
+        DEBUG_OUT("initializing EKT...\n");
+        ekt_init(&bnh->ekth, name, bnh->mycomm, bnh->mid);
+        ekt_register(bnh->ekth, BENESH_EKT_WORK, serialize_work, deserialize_work,
                  bnh, &bnh->work_type);
-    ekt_watch(bnh->ekth, bnh->work_type, work_watch);
+        ekt_watch(bnh->ekth, bnh->work_type, work_watch);
 
-    ekt_register(bnh->ekth, BENESH_EKT_FINI, serialize_fini, deserialize_fini,
+        ekt_register(bnh->ekth, BENESH_EKT_FINI, serialize_fini, deserialize_fini,
                  bnh, &bnh->fini_type);
-    ekt_watch(bnh->ekth, bnh->fini_type, fini_watch);
-    ekt_register(bnh->ekth, BENESH_EKT_TP, serialize_tpoint, deserialize_tpoint,
+        ekt_watch(bnh->ekth, bnh->fini_type, fini_watch);
+        ekt_register(bnh->ekth, BENESH_EKT_TP, serialize_tpoint, deserialize_tpoint,
                  bnh, &bnh->tp_type);
-    ekt_watch(bnh->ekth, bnh->tp_type, tpoint_watch);
+        ekt_watch(bnh->ekth, bnh->tp_type, tpoint_watch);
+    }
     APEX_TIMER_STOP(3);
 
     DEBUG_OUT("initializing mutexes...\n");
@@ -2230,10 +2261,12 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
     bnsh_tpoint_init(bnh, rules, &bnh->tph);
     APEX_TIMER_STOP(4);
 
-    ekt_enable(bnh->ekth);
+    if(!bnh->dummy) {
+        ekt_enable(bnh->ekth);
+    }
 
     if(wait) {
-        if(bnh->rank == 0) {
+        if(!bnh->dummy && bnh->rank == 0) {
             DEBUG_OUT("waiting for bidirectional communication with other "
                       "components.\n");
             for(i = 0; i < bnh->comp_count; i++) {
@@ -2244,7 +2277,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
                 }
             }
         }
-        MPI_Barrier(bnh->mycomm);
+        MPI_Barrier(bnh->gcomm);
     } else {
         DEBUG_OUT("proceeding without waiting for other components.\n");
     }
@@ -2784,6 +2817,17 @@ void overlap_offset(struct wf_domain *loc_dom, struct wf_domain *glob_dom,
     }
 }
 
+#define BNH_FIELD_SEND 1
+#define BNH_FIELD_RECV 2
+#define BNH_TERM -1
+
+static void command_dummies(struct benesh_handle *bnh, int command, int comp_id, int var_id)
+{
+    int cmd[3] = {command, comp_id, var_id};
+
+    MPI_Send(cmd, 3, MPI_INT, bnh->root_drank, 0, bnh->gcomm);
+}
+
 int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 {
     struct wf_target *tgt = wnode->tgt;
@@ -2827,6 +2871,11 @@ int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
             }
         } while(smax > signal);
         DEBUG_OUT("doing a field transfer (app %p)\n", (void *)apph);
+
+        if(bnh->rank == 0 && bnh->root_drank > -1) {
+            command_dummies(bnh, BNH_FIELD_SEND, srule->comp_id, prule->var_id);
+        }
+
         dst_comp->send_phase_open = 0; //DEBUG!!!!
         if(dst_comp->send_phase_open == 0) {
             DEBUG_OUT("starting send phase\n");
@@ -2924,6 +2973,11 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
             return(0);  
         } 
     } while(smax > signal);
+
+    if(bnh->rank == 0 && bnh->root_drank > -1) {
+        command_dummies(bnh, BNH_FIELD_RECV, prule->comp_id, srule->var_id);
+    }
+
     src_comp->recv_phase_open = 0; //DEBUG!!!
     if(src_comp->recv_phase_open == 0) {
         DEBUG_OUT("Starting receive phase (apph %p)\n", (void *)apph);
@@ -2983,10 +3037,6 @@ int check_sub(struct benesh_handle *bnh, struct work_node *wnode)
     }
     APEX_TIMER_STOP(0);
 }
-
-//tmp
-#define BNH_INJ_SEND 0
-#define BNH_INJ_RECV 1
 
 void send_field_by_name(struct benesh_handle *bnh, const char *fname)
 {
@@ -3447,6 +3497,91 @@ static int do_tpoint_rule(struct benesh_handle *bnh, struct tpoint_rule *rule,
     APEX_TIMER_STOP(0);
 }
 
+static void do_ordered_send(struct benesh_handle *bnh, int comp_id, int var_id)
+{
+    struct wf_var *src_var = &bnh->ifvars[var_id];
+    struct wf_domain *src_dom = src_var->dom;
+    struct wf_component *dst_comp = &bnh->comps[comp_id];
+    struct app_hndl *apph;
+    struct field_handle *field;
+    int i;
+
+    if(src_dom->comm_type == BNH_COMM_RDV_CLI) {
+        apph = bnh->comps[bnh->comp_id].cpl_apph;
+    } else {
+        apph = dst_comp->cpl_apph;
+    }
+
+    DEBUG_OUT("doing a field transfer (app %p)\n", (void *)apph);
+
+    dst_comp->send_phase_open = 0; //DEBUG
+    if(dst_comp->send_phase_open == 0) {
+        DEBUG_OUT("starting send phase\n");
+        app_begin_send_phase(apph);
+        dst_comp->send_phase_open = 1;
+    }
+   
+    DEBUG_OUT("%i fields to send\n", src_var->num_fields); 
+    for(i = 0; i < src_var->num_fields; i++) {
+        DEBUG_OUT("sending %s, field %i on %s using %p\n", src_var->name, i, src_dom->full_name, field);
+        field = src_var->fields[i];
+        cpl_send_field(field);
+        DEBUG_OUT("sent\n");
+    }
+
+    app_end_send_phase(apph); // DEBUG!!!!
+}
+
+static void do_ordered_recv(struct benesh_handle *bnh, int comp_id, int var_id)
+{
+    struct wf_component *src_comp = &bnh->comps[comp_id];
+    struct wf_var *dst_var = &bnh->ifvars[var_id];
+    struct wf_domain *dst_dom = dst_var->dom;
+    struct app_hndl *apph;
+    struct field_handle *field;
+    int i;
+
+    if(dst_dom->comm_type == BNH_COMM_RDV_CLI) {
+        apph = bnh->comps[bnh->comp_id].cpl_apph;
+    } else {
+        apph = src_comp->cpl_apph;
+    }
+
+    src_comp->recv_phase_open = 0; //DEBUG!!!
+    if(src_comp->recv_phase_open == 0) {
+        DEBUG_OUT("Starting receive phase (apph %p)\n", (void *)apph);
+        app_begin_recv_phase(apph);
+        src_comp->recv_phase_open = 1;
+    }
+    DEBUG_OUT("%i fields to get.\n", dst_var->num_fields);
+    for(i = 0; i < dst_var->num_fields; i++) {
+        field = dst_var->fields[i];
+        DEBUG_OUT("receiving %s, field %i\n", dst_var->name, i);
+        cpl_recv_field(field);
+    }
+
+    app_end_recv_phase(apph); //DEBUG!!!
+}
+
+static void take_nondummy_orders(struct benesh_handle *bnh)
+{
+    int cmd[3] = {0};
+    do {
+        if(bnh->grank == bnh->root_drank) {
+            MPI_Recv(cmd, 3, MPI_INT, bnh->root_rank, 0, bnh->gcomm, MPI_STATUS_IGNORE);
+            DEBUG_OUT("received new command (%i)\n", cmd[0]);
+        }
+        MPI_Bcast(cmd, 3, MPI_INT, 0, bnh->mycomm);
+        DEBUG_OUT("doing command (%i, %i, %i)\n", cmd[0], cmd[1], cmd[2]);
+        if(cmd[0] == BNH_FIELD_SEND) {
+            do_ordered_send(bnh, cmd[1], cmd[2]);
+        } else if(cmd[0] == BNH_FIELD_RECV) {
+            do_ordered_recv(bnh, cmd[1], cmd[2]);
+        }
+    } while(cmd[0] != BNH_TERM);
+    DEBUG_OUT("got term command\n");
+}
+
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 {
     struct tpoint_handle *tph = bnh->tph;
@@ -3463,6 +3598,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 
     DEBUG_OUT("starting touchpoint processing for %s\n", tpname);
     if(bnh->dummy) {
+        take_nondummy_orders(bnh);
         DEBUG_OUT("finished dummy touchpoint processing for %s\n", tpname);
         return;
     }
@@ -3497,6 +3633,10 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
     APEX_TIMER_STOP(1);
 
     do_tpoint_rule(bnh, rule, values);
+    if(bnh->rank == 0 && bnh->root_drank > -1) {
+        DEBUG_OUT("sending term command\n");
+        command_dummies(bnh, BNH_TERM, -1, -1);
+    }    
 
     DEBUG_OUT("finished touchpoint processing for %s\n", tpname);
 
@@ -3548,15 +3688,17 @@ int benesh_fini(struct benesh_handle *bnh)
     uint32_t comp_id = bnh->comp_id;
 
     DEBUG_OUT("started fini\n");
-
-    DEBUG_OUT("sending fini\n");
-    ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
-    DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
-    while(bnh->comp_count) {
-        benesh_handle_work(bnh);
+    
+    if(!bnh->dummy) {
+        DEBUG_OUT("sending fini\n");
+        ekt_tell(bnh->ekth, NULL, bnh->fini_type, &comp_id);
+        DEBUG_OUT("sent fini. bnh->comp_count = %i\n", bnh->comp_count);
+        while(bnh->comp_count) {
+            benesh_handle_work(bnh);
+        }
+        DEBUG_OUT("all peers components finished\n");
     }
-    DEBUG_OUT("all peers components finished\n");
-    MPI_Barrier(bnh->mycomm);
+    MPI_Barrier(bnh->gcomm);
     //report_cpl_timings(bnh, bnh->doms, bnh->dom_count);
     close_cpls(bnh, bnh->doms, bnh->dom_count);
     if(bnh->rank == 0) {
@@ -3564,28 +3706,30 @@ int benesh_fini(struct benesh_handle *bnh)
         DEBUG_OUT("did dspaces_kill\n");
     }
     //dspaces_fini(bnh->dsp);
-    MPI_Barrier(bnh->mycomm);
+    MPI_Barrier(bnh->gcomm);
     if(bnh->rank == 0) {
         DEBUG_OUT("did dspaces_fini\n");
     }
     bnsh_tpoint_fini(bnh->tph);
-    MPI_Barrier(bnh->mycomm);
+    MPI_Barrier(bnh->gcomm);
     if(bnh->rank == 0) {
         DEBUG_OUT("did bnsh_tpoint_fini\n");
     }
-    ekt_fini(&bnh->ekth);
-    MPI_Barrier(bnh->mycomm);
+    if(!bnh->dummy) {
+        ekt_fini(&bnh->ekth);
+    }
+    MPI_Barrier(bnh->gcomm);
     if(bnh->rank == 0) {
         DEBUG_OUT("did ekt_fini\n");
     }
     sleep(1);
     margo_finalize(bnh->mid);
-    MPI_Barrier(bnh->mycomm);
+    MPI_Barrier(bnh->gcomm);
     if(bnh->rank == 0) {
         DEBUG_OUT("did margo_finalize\n");
     }
     free(bnh->name);
-    MPI_Comm_free(&bnh->mycomm);
+    MPI_Comm_free(&bnh->gcomm);
     free(bnh);
 
     return(0);
@@ -3739,6 +3883,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
 
     DEBUG_OUT("binding domain %s to support opaque fields.\n", dom_name);
 
+    /*
     if(bnh->dummy) {
         DEBUG_OUT("I have a dummy handle. Allocate minimal structures for later field bindings.\n");
         dom = malloc(sizeof(*dom));
@@ -3753,6 +3898,9 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
         dom = match_domain(bnh, dom_name);
         comp = &bnh->comps[bnh->comp_id];
     }
+    */
+    dom = match_domain(bnh, dom_name);
+    comp = &bnh->comps[bnh->comp_id];
     if(dom->type != BNH_DOM_MESH) {
         fprintf(stderr,
                 "ERROR: binding a field to grid '%s' is not implemented yet.\n",
@@ -3761,7 +3909,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
     }
 
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
-        dom->cph = create_cpl_hndl(bnh->name, NULL, NULL, 0, bnh->mycomm);
+        dom->cph = create_cpl_hndl(bnh->name, NULL, NULL, 0, bnh->dummy ? MPI_COMM_NULL : bnh->mycomm);
         comp->cpl_apph = add_application(dom->cph, "server", "");
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
         fprintf(stderr, "ERROR: raw field domain binding not supported on servers yet.\n");
@@ -3816,6 +3964,7 @@ void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, 
 
     DEBUG_OUT("binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
+    /*
     if(bnh->dummy) {
         var = get_or_create_new_dummy(bnh, var_name);
         dom = bnh->dummy_dom;
@@ -3828,6 +3977,14 @@ void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, 
         } else {
             return(NULL);
         }
+    }
+    */
+    comp = &bnh->comps[bnh->comp_id];
+    var = match_local_ifvar(bnh, var_name);
+    if(var) {
+        dom = var->dom;
+    } else {
+        return(NULL);
     }
 
     // TODO: drop client assumption
@@ -3864,6 +4021,7 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
 
     DEBUG_OUT("dummy binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
+    /*
     if(bnh->dummy) {
         DEBUG_OUT("I am, myself, a dummy handle.\n")
         comp = bnh->dummy_comp;
@@ -3878,6 +4036,14 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
         }
         comp = &bnh->comps[bnh->comp_id];
     }
+    */
+    var = match_local_ifvar(bnh, var_name);
+    if(var) {
+        dom = var->dom;
+    } else {
+        return(NULL);
+    }
+    comp = &bnh->comps[bnh->comp_id];
   
     // TODO: drop client assumption
 

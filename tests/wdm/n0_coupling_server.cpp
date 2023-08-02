@@ -288,7 +288,7 @@ int main(int argc, char** argv)
   const int sml_nphi_total = std::atoi(argv[3]);
 
   benesh_app_id bnh;
-  benesh_init("coupler", "wdm.xc", MPI_COMM_WORLD, 1, &bnh);
+  benesh_init("coupler", "wdm.xc", MPI_COMM_WORLD, 0, 1, &bnh);
   
   //Omega_h::Mesh mesh(&lib);
   //Omega_h::binary::read(meshFile, lib.world(), &mesh);

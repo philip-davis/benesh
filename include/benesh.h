@@ -13,7 +13,7 @@ typedef void *benesh_arg;
 
 typedef int (*benesh_method)(benesh_app_id, benesh_arg);
 
-int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int wait,
+int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, int wait,
                 struct benesh_handle **bnh);
 
 int benesh_bind_method(struct benesh_handle *bnh, const char *name,
