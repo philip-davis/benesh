@@ -4,7 +4,10 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<sys/time.h>
+#ifdef linux
 #include<sys/prctl.h>
+#define HAVE_PRCTL
+#endif //linux
 #include<unistd.h>
 
 #ifdef USE_APEX
@@ -95,8 +98,10 @@ int main(int argc, char **argv)
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
- 
+
+#if HAVE_PTRCTL 
     prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0);
+#endif //HAVE_PTRCTL
 
 #ifdef USE_APEX
     apex_init("benesh heateq2d", rank, size);
