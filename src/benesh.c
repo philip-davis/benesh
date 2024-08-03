@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 
 #include "benesh.h"
+#include "beneshp.h"
 #include "ihash.h"
 #include "wdmcpl_wrapper.h"
 #include "omegah_wrapper.h"
@@ -16,6 +17,7 @@
 #include <margo.h>
 #include <mpi.h>
 #include <unistd.h>
+#include <assert.h>
 
 #ifdef USE_APEX
 #include <apex.h>
@@ -30,24 +32,6 @@
 #define APEX_TIMER_STOP(num) (void)0;
 #endif
 
-#define BENESH_EKT_TP 0
-#define BENESH_EKT_WORK 1
-#define BENESH_EKT_FINI 2
-
-#undef DEBUG_LOCKS
-#undef BDEBUG
-
-#define DEBUG_OUT(dstr, ...)                                                   \
-    do {                                                                       \
-        if(bnh->f_debug) {                                                     \
-            ABT_unit_id tid;                                                   \
-            ABT_thread_self_id(&tid);                                          \
-            fprintf(                                                           \
-                stderr, "Rank %i: TID: %" PRIu64 " %s, line %i (%s): " dstr,   \
-                bnh->grank, tid, __FILE__, __LINE__, __func__, ##__VA_ARGS__);  \
-        }                                                                      \
-    } while(0);
-
 #define DUMMY_OUT(retval) \
     do { \
         if(bnh->dummy) { \
@@ -55,83 +39,12 @@
         } \
     } while(0);
 
+#undef DEBUG_LOCKS
+#undef BDEBUG
+
 #define BNH_DOM_GRID 1
 #define BNH_DOM_MESH 2
 
-struct wf_domain {
-    char *name;
-    char *full_name;
-    int dim;
-    union {
-        double *lb;
-        int class_range[2];
-    };
-    double *ub;
-    double *l_offset;
-    uint64_t *l_grid_pts;
-    double *l_grid_dims;
-    int subdom_count;
-    struct wf_domain *subdoms;
-    struct omegah_mesh *mesh;
-    struct rdv_comm *rdv;
-    size_t rdv_dst_count;
-    uint32_t *rdv_dest;
-    uint32_t *rdv_offset;
-    struct rdv_ptn *rptn;
-    struct cpl_hndl *cph;
-    size_t rdv_count;
-    int type;
-    int comm_type;
-};
-
-struct tpoint_rule {
-    size_t nmappings;
-    char **map_names;
-    char **rule;
-    int source;
-    struct xc_list_node **tgts;
-    int num_tgts;
-};
-
-struct tpoint_announce {
-    uint32_t rule_id;
-    int64_t *tp_vars;
-    uint32_t comp_id;
-};
-
-struct work_announce {
-    uint32_t comp_id;
-    uint32_t tgt_id;
-    int64_t *tgt_vars;
-    int32_t subrule_id;
-};
-
-struct tpoint_handle {
-    ekt_id ekth;
-    struct tpoint_rule *rules;
-};
-
-struct pq_obj {
-    char **val;
-    int len;
-};
-
-struct work_node;
-
-struct obj_sub_node {
-    struct obj_sub_node *next;
-    int done;
-    struct work_node *sub;
-};
-
-#define BNH_SUB_START 0
-#define BNH_SUB_FINISH 1
-
-struct obj_entry {
-    struct obj_sub_node *subs;
-    int realized;
-    int pending;
-};
 
 #define BNH_SUBRULE_ASG 0
 #define BNH_SUBRULE_PUB 1
@@ -141,39 +54,6 @@ struct obj_entry {
 #define BNH_SUBRULE_MSUB 5
 #define BNH_SUBRULE_INJ 6
 
-struct var_ver {
-    int var_id;
-    struct xc_list_node *ver;
-};
-
-struct sub_rule {
-    int type;
-    int comp_id;
-    struct xc_expr *expr;
-    union {
-        int var_id;
-        int mth_id;
-        char *inj_id;
-    };
-    int num_invar;
-    struct var_ver *invars;
-    int num_outvar;
-    struct var_ver *outvars;
-};
-
-struct wf_target {
-    char **obj_name;
-    int name_len;
-    int num_vars;
-    int *tgt_locs;
-    char **tgt_vars;
-    int ndep;
-    struct xc_list_node **deps;
-    int num_subrules;
-    struct xc_list_node **subrules;
-    struct sub_rule *subrule;
-};
-
 struct data_sub;
 
 #define BNH_WORK_OBJ 0
@@ -182,114 +62,12 @@ struct data_sub;
 #define BNH_WORK_ANNOUNCE 3
 #define BNH_WORK_PENDING 4
 
-struct work_node {
-    struct work_node *prev, *next;
-    int type;
-    union {
-        struct wf_target *tgt;
-        struct work_node *link;
-    };
-    int subrule;
-    int64_t *var_maps;
-    dspaces_sub_t req;
-    int announce;
-    int realize;
-    int sub_req;
-    int deps;
-    int num_invar;
-    struct var_ver *invars;
-    int num_outvar;
-    struct var_ver *outvars;
-    struct data_sub *ds;
-};
-
-struct wf_component {
-    char *app;
-    char *name;
-    struct rdv_comm *rdv;
-    struct app_hndl *cpl_apph;
-    int recv_phase_open;
-    int send_phase_open;
-    int size;
-    int isme;
-};
-
 #define BNH_TYPE_INT 0
 #define BNH_TYPE_FP 1
 
 #define BNH_COMM_DSP 0
 #define BNH_COMM_RDV_SRV 1
 #define BNH_COMM_RDV_CLI 2
-
-struct wf_var {
-    char *name;
-    int type;
-    size_t buf_size;
-    union {
-        double val;
-        void *buf;
-    };
-    struct wf_domain *dom;
-    struct xc_int_hash_map *versions;
-    struct field_handle **fields;
-    int num_fields;
-    int comp_id;
-    int comm_type;
-};
-
-struct wf_method {
-    char *name;
-    benesh_method method;
-    void *arg;
-};
-
-struct benesh_handle {
-    int rank;
-    int grank;
-    int comm_size;
-    ekt_id ekth;
-    MPI_Comm mycomm;
-    MPI_Comm gcomm;
-    int root_rank;
-    int root_drank;
-    char *name;
-    struct xc_config *conf;
-    struct tpoint_handle *tph;
-    struct wf_component *comps;
-    struct wf_target *tgts;
-    struct xc_int_hash_map *known_objs;
-    int num_tgts;
-    int comp_count;
-    int comp_id;
-    margo_instance_id mid;
-    ABT_mutex work_mutex;
-    ABT_cond work_cond;
-    ABT_mutex db_mutex;
-    ABT_mutex data_mutex;
-    ABT_cond data_cond;
-    struct work_node *wqueue_head;
-    struct work_node *wqueue_tail;
-    int gvar_count, ifvar_count;
-    struct wf_var *gvars;
-    struct wf_var *ifvars;
-    int mth_count;
-    struct wf_method *mths;
-    ekt_type tp_type;
-    ekt_type work_type;
-    ekt_type fini_type;
-    int dom_count;
-    struct wf_domain *doms;
-    dspaces_client_t dsp;
-    int rdvRanks;
-    int ready;
-    int f_debug;
-
-    int dummy;
-    struct wf_domain *dummy_dom;
-    struct wf_component *dummy_comp;
-    struct wf_var *dummy_vars;
-    int num_dummy_vars;
-};
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
                                char **map_names, int64_t *map_vals, int *val);
@@ -382,7 +160,7 @@ char *obj_atom_tostr(struct wf_target *tgt, int64_t *maps, int pos)
     if(tgt->obj_name[pos][0] == '%') {
         for(i = 0; i < tgt->num_vars; i++) {
             if(strcmp(&tgt->obj_name[pos][1], tgt->tgt_vars[i]) == 0) {
-                asprintf(&res, "%zi", maps[i]);
+                asprintf(&res, "%" PRIu64, maps[i]);
                 return (res);
             }
         }
@@ -2144,6 +1922,7 @@ static int benesh_load_targets(struct benesh_handle *bnh)
     return(0);
 }
 
+/*
 static void benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm, int dummy)
 {
     MPI_Comm_dup(gcomm, &bnh->gcomm);
@@ -2161,32 +1940,219 @@ static void benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm, int dummy
             bnh->root_rank = bnh->grank;
         }
     }
-    DEBUG_OUT("doing reductions to find roots\n");
+    
     MPI_Allreduce(MPI_IN_PLACE, &bnh->root_drank, 1, MPI_INT, MPI_MAX, bnh->gcomm);
     MPI_Allreduce(MPI_IN_PLACE, &bnh->root_rank, 1, MPI_INT, MPI_MAX, bnh->gcomm);
 
     DEBUG_OUT("Rank %i is root of the dummies, rank %i is normal root.\n", bnh->root_drank, bnh->root_rank);
     
 }
+*/
+
+static void benesh_init_app_name(struct benesh_handle *bnh, const char *name)
+{
+    const char *envapp = getenv("BNH_APP");
+
+    bnh->name = NULL;
+    if(envapp) {
+        if(name) {
+            DEBUG_OUT("Overriding name argument '%s' with contents of BNH_APP\n", name);
+        }
+        bnh->name = strdup(envapp);
+    } else {
+        if(name) {
+            bnh->name = strdup(name);
+        }
+    }
+}
+
+static const char *benesh_init_conf_name(struct benesh_handle *bnh, const char *conf)
+{
+    const char *envconfig = getenv("BNH_CONFIG");
+
+    if(envconfig) {
+        if(conf) {
+            DEBUG_OUT("Overriding conf argument '%s' with contents of BNH_APP\n", conf);
+        }
+        return(envconfig);
+    }
+    return(conf);
+}
+
+static int benesh_split_off_dummies(struct benesh_handle *bnh, MPI_Comm gcomm)
+{
+    int err;
+
+    CHECK_ZERO(MPI_Comm_split(gcomm, bnh->dummy, bnh->grank, &bnh->mycomm), BNH_EINVAL, err_out, "invalid communicator\n");
+    DEBUG_OUT("did split\n");
+    CHECK_ZERO(MPI_Comm_rank(bnh->mycomm, &bnh->rank), BNH_EINVAL, err_out, "invalid communicator\n");
+    bnh->root_rank = (!bnh->dummy && !bnh->rank)?bnh->grank:-1;
+    bnh->root_drank = (bnh->dummy && !bnh->rank)?bnh->grank:-1;
+
+    DEBUG_OUT("doing reductions to find roots\n");
+    CHECK_ZERO(MPI_Allreduce(MPI_IN_PLACE, &bnh->root_rank, 1, MPI_INT, MPI_MAX, bnh->gcomm),BNH_EINVAL, err_out, "invalid communicator\n");
+    CHECK_ZERO(MPI_Allreduce(MPI_IN_PLACE, &bnh->root_drank, 1, MPI_INT, MPI_MAX, bnh->gcomm),BNH_EINVAL, err_out, "invalid communicator\n");
+
+    DEBUG_OUT("Rank %i is root of the dummies, rank %i is normal root.\n", bnh->root_drank, bnh->root_rank);
+
+    return(0);
+
+err_out:
+    return(err);
+}
+
+static int benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm)
+{
+    int err = 0;
+
+    CHECK_ZERO(MPI_Comm_dup(gcomm, &bnh->gcomm), BNH_EINVAL, err_out, "invalid communicator\n");
+
+    err = benesh_split_off_dummies(bnh, gcomm);
+    if(err) {
+        goto err_out;
+    }
+
+    CHECK_ZERO(MPI_Comm_size(bnh->mycomm, &bnh->comm_size), BNH_EINVAL, err_out, "invalid communicator\n");
+
+    return(0);
+
+err_out:
+    return(err);
+}
+
+static int benesh_init_margo(struct benesh_handle *bnh)
+{
+    int err;
+    const char *envna = getenv("BNH_NA");
+    char *na;
+    char margo_conf[1024];
+    struct hg_init_info hii = {0};
+    struct margo_init_info mii = {0};
+
+    DEBUG_OUT("initializing margo...\n");
+
+    sprintf(margo_conf, "{ \"use_progress_thread\" : true, \"rpc_thread_count\" : 1, \"progress_timeout_ub_msec\": 50}");
+    hii.request_post_init = 1024;
+    hii.auto_sm = 0;
+    mii.hg_init_info = &hii;
+    mii.json_config = margo_conf;
+
+    if(envna) {
+        DEBUG_OUT("using '%s' for NA string\n", envna);
+        na = strdup(envna);
+    } else {
+        DEBUG_OUT("using default NA string (\"tcp\")\n");
+        na = strdup("tcp");
+    }
+
+    bnh->mid = margo_init_ext(na, MARGO_SERVER_MODE, &mii);
+    if(bnh->mid == MARGO_INSTANCE_NULL) {
+        ERR_OUT(BNH_EIO, err_out, "margo_init_ext failed.\n");
+    }
+
+    if(bnh->f_debug) {
+        margo_set_log_level(bnh->mid, MARGO_LOG_TRACE);
+    }
+
+    return(0);
+err_out:
+    return(err);
+}
+
+static int benesh_wireup_preconfig(struct benesh_handle *bnh, MPI_Comm gcomm)
+{
+    int err;
+
+    CHECK_ZERO(benesh_init_mpi(bnh, gcomm), err, err_out, "MPI initialization failed.\n");
+    CHECK_ZERO(benesh_init_margo(bnh), err, err_out, "margo initialization failed.\n");
+    if(!bnh->dummy) {
+        CHECK_ZERO(benesh_init_ekt(bnh), err, err_out, "EKT initialization failed.\n");
+    }
+
+err_out:
+    return(err);
+}
+
+static int benesh_check_init_success(struct benesh_handle *bnh, MPI_Comm gcomm, int success)
+{
+    int err;
+
+    CHECK_ZERO(MPI_Allreduce(MPI_IN_PLACE, &success, 1, MPI_INT, MPI_MIN, gcomm), BNH_EINVAL, err_out, "invalid communicator\n");
+
+    return(success);
+
+err_out:
+    return(1);
+}
 
 int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, int wait,
                 struct benesh_handle **handle)
 {
+    int flag;
+    struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
+    const char *conf_file;
+    int success = 0;
+    int err;
+
+    MPI_Initialized(&flag);
+    if(flag) {
+        CHECK_ZERO(MPI_Comm_rank(gcomm, &bnh->grank), BNH_EINVAL, err_out, "invalid communicator\n");
+    } else {
+        bnh->grank = -1;
+        ERR_OUT(BNH_EPERM, err_out_nompi, "MPI must be initialized before starting benesh.\n");
+    }
+
+    CHECK_ZERO(benesh_init_logging(bnh->grank), err, err_out_nompi, "logging initiatialization failed.\n");
+
+    benesh_init_app_name(bnh, name);
+    if(!bnh->name || !*(bnh->name)) {
+        ERR_OUT(BNH_EINVAL, err_out, "application name must be present and not empty.\n");
+    } 
+    DEBUG_OUT("application name is '%s'\n", bnh->name);
+
+    conf_file = benesh_init_conf_name(bnh, conf);
+    if(!conf_file || !*(conf_file)) {
+        ERR_OUT(BNH_EINVAL, err_out, "config file name must be provided.\n");
+    }
+    DEBUG_OUT("config file is '%s'\n", conf_file);
+
+    bnh->dummy = dummy;
+    *handle = bnh;
+
+    CHECK_ZERO(benesh_wireup_preconfig(bnh, gcomm), err, err_out, "preconfigure wireup failed.\n");
+    success = 1;
+
+    CHECK_ZERO_ROOT(benesh_check_init_success(bnh, gcomm, success), BNH_EINCONST, err_out_nompi, "root detected some ranks failed init.\n");
+
+    return(0);
+
+err_out:
+    benesh_check_init_success(bnh, gcomm, success);
+err_out_nompi:
+    DEBUG_OUT("failed.\n");
+    if(bnh->name) {
+        free(bnh->name);
+    }
+    free(bnh);
+    return(err);
+}
+
+/*
+int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, int wait,
+                struct benesh_handle **handle)
+{
+    const char *envna = getenv("BENESH_NA");
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     struct tpoint_rule *rules;
-    const char *envdebug = getenv("BENESH_DEBUG");
-    const char *envna = getenv("BENESH_NA");
+    
     char *na;
     struct hg_init_info hii = {0};
     char margo_conf[1024];
     struct margo_init_info mii = {0};
     int i;
+    int err;
 
     *handle = bnh;
-
-    if(envdebug) {
-        bnh->f_debug = 1;
-    }
 
     bnh->name = strdup(name);
     bnh->dummy = dummy;
@@ -2289,6 +2255,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, i
 
     return(0);
 }
+*/
 
 void print_work_node(FILE *stream, struct benesh_handle *bnh,
                      struct work_node *wnode)
@@ -2852,6 +2819,8 @@ int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
 
     if(src_dom->comm_type == BNH_COMM_RDV_SRV ||
             src_dom->comm_type == BNH_COMM_RDV_CLI) {
+        assert(0 && "not implemented");
+        /*
         // TODO this is not the right way to do this
         if(src_dom->comm_type == BNH_COMM_RDV_CLI) {
             signal = 1;
@@ -2891,6 +2860,7 @@ int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
             DEBUG_OUT("sent\n"); 
         }
         app_end_send_phase(apph); // DEBUG!!!!
+        */
     } else if(local_overlap(src_dom, dst_dom, NULL, NULL)) {
         overlap_offset(src_dom, dst_dom, &goff_lb, &goff_ub);
         publish_var(bnh, src_var, tgt, wnode->subrule, wnode->var_maps, goff_lb,
@@ -2948,6 +2918,9 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
     int signal, smin, smax;
     int i;
 
+    assert(0 && "not implemented");
+
+    /*
     DEBUG_OUT("getting %s from %s\n", dst_var->name, src_comp->name);
     if(dst_dom->comm_type == BNH_COMM_RDV_CLI) {
         signal = 2;
@@ -2965,10 +2938,9 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
             DEBUG_OUT("bailing before starting a recv to avoid deadlock!\n");
             return(3);
         } else if(smin < signal) {
-            /* different ranks are trying to start different
-             * communication phases. All but the lowest id
-             * should requeue
-             */
+            // different ranks are trying to start different
+            // communication phases. All but the lowest id
+            // should requeue
             DEBUG_OUT("requeuing recv to avoid deadlock.\n");
             return(0);  
         } 
@@ -2991,6 +2963,7 @@ int get_with_redev(struct benesh_handle *bnh, struct work_node *wnode)
         cpl_recv_field(field);
     }
     app_end_recv_phase(apph);
+    */
 
     return (1);
 }
@@ -3044,22 +3017,28 @@ void send_field_by_name(struct benesh_handle *bnh, const char *fname)
     struct wf_var *var;
     int i;
 
+    assert(0 && "not implemented");
+    /*
     var = match_local_ifvar(bnh, fname);
     for(i = 0; i < var->num_fields; i++) {
         field = var->fields[i];
         cpl_send_field(field);
     }
+    */
 }
 
 void send_list(struct benesh_handle *bnh, struct wf_component *comp, char **list, int len)
 {
     int i; 
 
+    assert(0 && "not implemented");
+    /*
     app_begin_send_phase(comp->cpl_apph);
     for(i = 0; i < len; i++) {
         send_field_by_name(bnh, list[i]);
     }
     app_end_send_phase(comp->cpl_apph);
+    */
 }
 
 void do_inject(struct benesh_handle *bnh, struct sub_rule *subrule)
@@ -3495,6 +3474,8 @@ static int do_tpoint_rule(struct benesh_handle *bnh, struct tpoint_rule *rule,
         free(fq_tgt);
     }
     APEX_TIMER_STOP(0);
+    
+    return(0);
 }
 
 static void do_ordered_send(struct benesh_handle *bnh, int comp_id, int var_id)
@@ -3506,6 +3487,9 @@ static void do_ordered_send(struct benesh_handle *bnh, int comp_id, int var_id)
     struct field_handle *field;
     int i;
 
+    assert(0 && "not implemented");
+
+    /*
     if(src_dom->comm_type == BNH_COMM_RDV_CLI) {
         apph = bnh->comps[bnh->comp_id].cpl_apph;
     } else {
@@ -3530,6 +3514,7 @@ static void do_ordered_send(struct benesh_handle *bnh, int comp_id, int var_id)
     }
 
     app_end_send_phase(apph); // DEBUG!!!!
+    */
 }
 
 static void do_ordered_recv(struct benesh_handle *bnh, int comp_id, int var_id)
@@ -3541,6 +3526,9 @@ static void do_ordered_recv(struct benesh_handle *bnh, int comp_id, int var_id)
     struct field_handle *field;
     int i;
 
+    assert(0 && "not implemented");
+
+    /*
     if(dst_dom->comm_type == BNH_COMM_RDV_CLI) {
         apph = bnh->comps[bnh->comp_id].cpl_apph;
     } else {
@@ -3561,6 +3549,7 @@ static void do_ordered_recv(struct benesh_handle *bnh, int comp_id, int var_id)
     }
 
     app_end_recv_phase(apph); //DEBUG!!!
+    */
 }
 
 static void take_nondummy_orders(struct benesh_handle *bnh)
@@ -3669,7 +3658,10 @@ static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain *dom_
 void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_count)
 {
     int i;
-    
+   
+    assert(0 && "not implemented");
+
+    /*
     for(i = 0; i < dom_count; i++) {
         if(dom_list[i].cph) {
             close_cpl(dom_list[i].cph);
@@ -3681,6 +3673,7 @@ void close_cpls(struct benesh_handle *bnh, struct wf_domain *dom_list, int dom_c
             close_cpls(bnh, dom_list[i].subdoms, dom_list[i].subdom_count);
         }
     }
+    */
 }
 
 int benesh_fini(struct benesh_handle *bnh)
@@ -3812,6 +3805,9 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
     int i;
     int found = 0;
 
+    assert(0 && "not implemented");
+
+    /*
     DUMMY_OUT(0);
 
     DEBUG_OUT("binding var %s\n", var_name);
@@ -3873,6 +3869,9 @@ void *benesh_bind_var_mesh(struct benesh_handle *bnh, const char *var_name, int 
     free(tmp_vname);
 
     return(cpl_get_field_ptr(field));
+    */
+    
+    return(0);
 }
 
 // TODO: do internally based on configuration - tricky if supporting dummy handles
@@ -3882,23 +3881,8 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
     struct wf_component *comp;
 
     DEBUG_OUT("binding domain %s to support opaque fields.\n", dom_name);
-
-    /*
-    if(bnh->dummy) {
-        DEBUG_OUT("I have a dummy handle. Allocate minimal structures for later field bindings.\n");
-        dom = malloc(sizeof(*dom));
-        dom->type = BNH_DOM_MESH;
-        dom->comm_type = BNH_COMM_RDV_CLI;
-        dom->name = strdup(dom_name);
-        comp = malloc(sizeof(*comp));
-        bnh->dummy_dom = dom;
-        bnh->dummy_comp = comp;
-    } else {
-        DEBUG_OUT("I am a full-fledged handle.\n");
-        dom = match_domain(bnh, dom_name);
-        comp = &bnh->comps[bnh->comp_id];
-    }
-    */
+    assert(0 && "not implemented");
+/*
     dom = match_domain(bnh, dom_name);
     comp = &bnh->comps[bnh->comp_id];
     if(dom->type != BNH_DOM_MESH) {
@@ -3918,7 +3902,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
         fprintf(stderr, "ERROR: raw field domain binding requires rendezvous transport.\n");
         return(-1);
     }
-    
+*/  
     return(0); 
 }
 
@@ -3962,23 +3946,11 @@ void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, 
     char num_str[32];
     int i, found;
 
+    assert(0 && "not implemented");
+
+/*
     DEBUG_OUT("binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
-    /*
-    if(bnh->dummy) {
-        var = get_or_create_new_dummy(bnh, var_name);
-        dom = bnh->dummy_dom;
-        comp = bnh->dummy_comp;
-    } else {
-        comp = &bnh->comps[bnh->comp_id];
-        var = match_local_ifvar(bnh, var_name);
-        if(var) {
-            dom = var->dom;
-        } else {
-            return(NULL);
-        }
-    }
-    */
     comp = &bnh->comps[bnh->comp_id];
     var = match_local_ifvar(bnh, var_name);
     if(var) {
@@ -4006,6 +3978,8 @@ void *benesh_bind_field_mpient(struct benesh_handle *bnh, const char *var_name, 
     free(field_name);
 
     return(cpl_get_field_ptr(field));
+*/
+    return(0);
 }
 
 void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, int idx, int participates)
@@ -4019,24 +3993,11 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
     char num_str[32];
     int i, found;
 
+    assert(0 && "not implemented");
+
     DEBUG_OUT("dummy binding field '%s', idx %i (does%s participate)\n", var_name, idx, participates ? "":" not");
 
     /*
-    if(bnh->dummy) {
-        DEBUG_OUT("I am, myself, a dummy handle.\n")
-        comp = bnh->dummy_comp;
-        var = get_or_create_new_dummy(bnh, var_name);
-        dom = bnh->dummy_dom;
-    } else {
-        var = match_local_ifvar(bnh, var_name);
-        if(var) {
-            dom = var->dom;
-        } else {
-            return(NULL);
-        }
-        comp = &bnh->comps[bnh->comp_id];
-    }
-    */
     var = match_local_ifvar(bnh, var_name);
     if(var) {
         dom = var->dom;
@@ -4064,6 +4025,8 @@ void *benesh_bind_field_dummy(struct benesh_handle *bnh, const char *var_name, i
     free(field_name);
 
     return(cpl_get_field_ptr(field));
+    */
+    return(0);
 }
 
 static int same_root_domain(struct wf_domain *dom1, struct wf_domain *dom2)
@@ -4133,7 +4096,7 @@ void get_rdv_dests(struct benesh_handle *bnh, double glb, double gub,
     int pos, rank;
 
     DEBUG_OUT("calculating rendzevous distribution for the the [%lf, %lf] "
-              "subset of [%lf, %lf] with %i rdv ranks and %li grid points.\n",
+              "subset of [%lf, %lf] with %i rdv ranks and %" PRIu64 " grid points.\n",
               llb, lub, glb, gub, rdvRanks, pts);
     pitch = (lub - llb) / pts;
     DEBUG_OUT("pitch is %lf\n", pitch);
@@ -4282,6 +4245,9 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
     struct wf_component *comp;
     int i;
 
+    assert(0 && "not implemented");
+
+    /*
     DUMMY_OUT(0);
 
     dom = match_domain(bnh, dom_name);
@@ -4317,7 +4283,8 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
         fprintf(stderr, "ERROR: mesh binding requires rendezvous transport.\n");
         return (-1);
     }
-
+*/
+    return(0);
 }
 
 int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
@@ -4349,7 +4316,7 @@ int benesh_bind_grid_domain(struct benesh_handle *bnh, const char *dom_name,
         memcpy(dom->l_grid_pts, grid_points,
                sizeof(*dom->l_grid_pts) * dom->dim);
         for(i = 0; i < dom->dim; i++) {
-            DEBUG_OUT("%li grid points in dimension %i\n", dom->l_grid_pts[i],
+            DEBUG_OUT("%" PRIu64 " grid points in dimension %i\n", dom->l_grid_pts[i],
                       i);
             grid_size *= dom->l_grid_pts[i];
         }
@@ -4494,6 +4461,77 @@ void benesh_unify_mesh_data(struct benesh_handle *bnh, const char *var_name)
 
     //cpl_combine_fields(dom->cph, dom->subdom_count, field_names);
     free(field_names);
+}
+
+struct bnh_storage_def *benesh_grid_def(const int ndim, int *dims, bnh_order_t order)
+{
+    struct bnh_storage_def *gdef = malloc(sizeof(*gdef));
+    int i;
+
+    gdef->type = BNH_GRID;
+    gdef->order = order;
+    gdef->ndim = ndim;
+    gdef->dims = malloc(sizeof(*gdef->dims) * ndim);
+    gdef->ghosts = malloc(sizeof(*gdef->ghosts) * ndim * 2);
+    for(i = 0; i < ndim; i++) {
+        gdef->dims[i] = dims[i];
+    }
+
+    return(gdef);
+}
+
+void benesh_grid_ghosts(struct bnh_storage_def *gdef, int *depths)
+{
+    int i;
+
+    if(gdef->type != BNH_GRID) {
+        fprintf(stderr, "WARNING: %s: trying to set ghosts for a non-grid definition.\n", __func__);
+        return;
+    }
+
+    for(i = 0; i < gdef->ndim * 2; i++) {
+        gdef->ghosts[i] = depths[i];
+    }
+
+}
+
+void benesh_grid_ghosts_uniform(struct bnh_storage_def *gdef, int depth)
+{
+    int depths[gdef->ndim * 2];
+    int i;
+
+    for(i = 0; i < gdef->ndim * 2; i++) {
+        depths[i] = depth;
+    }
+
+    benesh_grid_ghosts(gdef, depths);
+}
+
+struct benesh_domain_fragment *benesh_domain_geotile_decompose(struct benesh_handle *bnh, const char *domain, double lb[2], double ub[2])
+{
+    struct benesh_domain_fragment *dfrag;
+    // Validate against configuration
+    // Precompute offsets, etc
+
+    dfrag = malloc(sizeof(*dfrag));
+    dfrag->type = BNH_GEO_TILE; 
+    dfrag->gtile.lb[0] = lb[0];
+    dfrag->gtile.lb[1] = lb[1];
+    dfrag->gtile.ub[0] = ub[0];
+    dfrag->gtile.ub[1] = ub[1];
+
+    return(dfrag);
+}
+
+int benesh_bind_var_with_type(struct benesh_handle *bnh, const char *var_name, struct bnh_storage_def *sdef, struct benesh_domain_fragment *dfrag, benesh_datatype dtype)
+{
+    return 0;
+}
+
+int benesh_bind_var_with_size(struct benesh_handle *bnh, const char *var_name, struct bnh_storage_def *sdef, struct benesh_domain_fragment *dfrag, size_t dsize)
+{
+    //call to benesh_bind_var_with_size()
+    return(0);
 }
 
 #endif /* _BENESH_H_ */

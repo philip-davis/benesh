@@ -11,11 +11,11 @@ set (benesh-pkg "share/cmake/benesh")
 
 add_library(benesh 
             benesh.c
-            wdmcpl_wrapper.cpp
-            redev_wrapper.cpp
-            omegah_wrapper.cpp
-            test_support.cpp
+            benesh-ekt.c
+            benesh-logging.c
 )
+
+target_link_libraries(benesh PRIVATE ${MPI_C_LIBRARIES})
 
 target_include_directories(benesh PRIVATE
                            ${MPI_CXX_INCLUDE_PATH}
@@ -27,11 +27,7 @@ target_link_libraries(benesh PRIVATE
                       parser
                       dspaces::dspaces
                       ekt
-                      argobots
-                      wdmcpl::wdmcpl
-                      redev::redev
-                      adios2::adios2
-                      Omega_h::omega_h)
+                      argobots)
 
 target_include_directories (benesh BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
@@ -39,7 +35,7 @@ target_include_directories (benesh BEFORE PUBLIC
 if(_apex_FOUND)
     add_definitions(-DUSE_APEX)
     target_link_libraries(benesh PRIVATE apex)
-    set(NEED_APEX "apex")
+    target_include_directories(benesh BEFORE PRIVATE _apex_INCLUDEDIR)
 endif()
 
 set (DEST_DIR "${CMAKE_INSTALL_PREFIX}")
