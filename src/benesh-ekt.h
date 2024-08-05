@@ -7,4 +7,6 @@
 
 int benesh_init_ekt(struct benesh_handle *bnh);
 
+int benesh_ekt_xconnect(struct benesh_handle *bnh, int wait);
+
 #endif // _BENESH_EKT_H

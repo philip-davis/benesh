@@ -2,11 +2,25 @@
 #define _BENESH_TYPES_H
 
 #include<abt.h>
+#include "benesh.h"
 #include<dspaces.h>
 #include<ekt.h>
 #include<margo.h>
 #include<mpi.h>
+#include"util.h"
 
+#define BNH_WORK_OBJ 0
+#define BNH_WORK_RULE 1
+#define BNH_WORK_CHAIN 2
+#define BNH_WORK_ANNOUNCE 3
+#define BNH_WORK_PENDING 4
+
+#define BNH_TYPE_INT 0
+#define BNH_TYPE_FP 1
+
+#define BNH_COMM_DSP 0
+#define BNH_COMM_RDV_SRV 1
+#define BNH_COMM_RDV_CLI 2
 
 struct wf_domain {
     char *name;
@@ -217,6 +231,8 @@ struct benesh_handle {
     struct wf_component *dummy_comp;
     struct wf_var *dummy_vars;
     int num_dummy_vars;
+
+    struct bnh_pvec *components;
 };
 
 #endif // _BENESH_TYPES_H

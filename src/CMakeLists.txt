@@ -13,6 +13,8 @@ add_library(benesh
             benesh.c
             benesh-ekt.c
             benesh-logging.c
+            benesh-config.c
+            util.c
 )
 
 target_link_libraries(benesh PRIVATE ${MPI_C_LIBRARIES})

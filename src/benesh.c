@@ -1,6 +1,3 @@
-#ifndef _BENESH_H_
-#define _BENESH_H_
-
 #define _GNU_SOURCE
 
 #include "benesh.h"
@@ -18,19 +15,6 @@
 #include <mpi.h>
 #include <unistd.h>
 #include <assert.h>
-
-#ifdef USE_APEX
-#include <apex.h>
-#define APEX_FUNC_TIMER_START(fn)                                              \
-    apex_profiler_handle profiler0 = apex_start(APEX_FUNCTION_ADDRESS, &fn);
-#define APEX_NAME_TIMER_START(num, name)                                       \
-    apex_profiler_handle profiler##num = apex_start(APEX_NAME_STRING, name);
-#define APEX_TIMER_STOP(num) apex_stop(profiler##num);
-#else
-#define APEX_FUNC_TIMER_START(fn) (void)0;
-#define APEX_NAME_TIMER_START(num, name) (void)0;
-#define APEX_TIMER_STOP(num) (void)0;
-#endif
 
 #define DUMMY_OUT(retval) \
     do { \
@@ -55,19 +39,6 @@
 #define BNH_SUBRULE_INJ 6
 
 struct data_sub;
-
-#define BNH_WORK_OBJ 0
-#define BNH_WORK_RULE 1
-#define BNH_WORK_CHAIN 2
-#define BNH_WORK_ANNOUNCE 3
-#define BNH_WORK_PENDING 4
-
-#define BNH_TYPE_INT 0
-#define BNH_TYPE_FP 1
-
-#define BNH_COMM_DSP 0
-#define BNH_COMM_RDV_SRV 1
-#define BNH_COMM_RDV_CLI 2
 
 static int benesh_get_ipqx_val(struct xc_pqexpr *pqx, int nmappings,
                                char **map_names, int64_t *map_vals, int *val);
@@ -824,180 +795,6 @@ char *tpoint_tostr(const char *comp_name, struct tpoint_rule *rule)
     }
 
     return (str);
-}
-
-static int tpoint_watch(void *tpoint_v, void *bnh_v)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
-    struct tpoint_announce *tpoint = (struct tpoint_announce *)tpoint_v;
-    struct pq_obj **fq_tgts;
-    struct xc_list_node *tgt_obj;
-    uint32_t rule_id = tpoint->rule_id;
-    struct tpoint_rule *rule = &rules[rule_id];
-    int i;
-
-    APEX_FUNC_TIMER_START(tpoint_watch);
-    while(!bnh->ready) {
-        // Change to wait condition
-        sleep(1);
-    }
-
-    if(bnh->f_debug) {
-        DEBUG_OUT("Touchpoint announcement received for rule %s\n",
-                tpoint_tostr(bnh->comps[tpoint->comp_id].name, rule));
-        DEBUG_OUT("  with the mappings:\n");
-        for(i = 0; i < rule->nmappings; i++) {
-            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i], tpoint->tp_vars[i]);
-        }
-    }
-
-    DEBUG_OUT("rule has %i targets\n", rule->num_tgts);
-    fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
-    for(i = 0; i < rule->num_tgts; i++) {
-        tgt_obj = rule->tgts[i];
-        fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names,
-                                 tpoint->tp_vars);
-        // This is a rather large critical section, and it blocks progress
-        // handling.
-        APEX_NAME_TIMER_START(1, "work_lock_twa");
-        ABT_mutex_lock(bnh->work_mutex);
-        APEX_TIMER_STOP(1);
-        schedule_target(bnh, fq_tgts[i]);
-        ABT_cond_signal(bnh->work_cond);
-        ABT_mutex_unlock(bnh->work_mutex);
-    }
-    APEX_TIMER_STOP(0);
-    return 0;
-}
-
-static int serialize_work(void *work_v, void *bnh_v, void **buf)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct work_announce *work = (struct work_announce *)work_v;
-    struct wf_target *tgt = &bnh->tgts[work->tgt_id];
-    size_t buf_size;
-    size_t nmap = tgt->num_vars;
-
-    buf_size = sizeof(work->comp_id) + sizeof(work->tgt_id) +
-               sizeof(work->subrule_id) + nmap * sizeof(*work->tgt_vars);
-    *buf = malloc(buf_size);
-
-    ((uint32_t *)(*buf))[0] = work->comp_id;
-    ((uint32_t *)(*buf))[1] = work->tgt_id;
-    ((uint32_t *)(*buf))[2] = work->subrule_id;
-    memcpy(&((uint32_t *)(*buf))[3], work->tgt_vars,
-           nmap * sizeof(*work->tgt_vars));
-
-    return (buf_size);
-}
-
-static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
-    struct tpoint_announce *tpoint = (struct tpoint_announce *)tpoint_v;
-    size_t nmappings = rules[tpoint->rule_id].nmappings;
-    size_t buf_size;
-    uint32_t rule_id = tpoint->rule_id;
-    uint32_t comp_id = tpoint->comp_id;
-    int64_t *mappings;
-    int i;
-
-    buf_size =
-        sizeof(rule_id) + sizeof(comp_id) + (nmappings * sizeof(*mappings));
-    *buf = malloc(buf_size);
-
-    ((uint32_t *)(*buf))[0] = rule_id;
-    ((uint32_t *)(*buf))[1] = comp_id;
-    mappings = *buf + 2 * sizeof(uint32_t);
-    for(i = 0; i < nmappings; i++) {
-        mappings[i] = tpoint->tp_vars[i];
-    }
-
-    return (buf_size);
-}
-
-static int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
-    struct tpoint_announce *tpoint = malloc(sizeof(*tpoint));
-    uint32_t rule_id = ((uint32_t *)buf)[0];
-    uint32_t comp_id = ((uint32_t *)buf)[1];
-    size_t nmappings = rules[rule_id].nmappings;
-    int64_t *mappings;
-    int i;
-
-    tpoint->rule_id = rule_id;
-    tpoint->comp_id = comp_id;
-    mappings = buf + 2 * sizeof(uint32_t);
-    tpoint->tp_vars = malloc(sizeof(*tpoint->tp_vars) * nmappings);
-    for(i = 0; i < nmappings; i++) {
-        tpoint->tp_vars[i] = mappings[i];
-    }
-
-    *tpoint_v = tpoint;
-
-    return (0);
-}
-
-static int deserialize_work(void *buf, void *bnh_v, void **work_v)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct work_announce *work = malloc(sizeof(*work));
-    struct wf_target *tgt;
-    size_t nmap;
-
-    work->comp_id = ((uint32_t *)buf)[0];
-    work->tgt_id = ((uint32_t *)buf)[1];
-    work->subrule_id = ((uint32_t *)buf)[2];
-    tgt = &bnh->tgts[work->tgt_id];
-    nmap = tgt->num_vars;
-    work->tgt_vars = malloc(nmap * sizeof(*work->tgt_vars));
-    memcpy(work->tgt_vars, &((uint32_t *)buf)[3],
-           nmap * sizeof(*work->tgt_vars));
-
-    *work_v = work;
-
-    return (0);
-}
-
-static int serialize_fini(void *fini_v, void *bnh_v, void **buf)
-{
-    uint32_t *comp_id = (uint32_t *)fini_v;
-
-    *buf = malloc(sizeof(*comp_id));
-    *(uint32_t *)(*buf) = *comp_id;
-
-    return (sizeof(*comp_id));
-}
-
-static int deserialize_fini(void *buf, void *bnh_v, void **fini_v)
-{
-    uint64_t *comp_id = malloc(sizeof(*comp_id));
-
-    *comp_id = *(uint32_t *)buf;
-
-    *fini_v = comp_id;
-
-    return 0;
-}
-
-static int fini_watch(void *fini_v, void *bnh_v)
-{
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    uint32_t comp_id = *(uint32_t *)fini_v;
-
-    ABT_mutex_lock(bnh->work_mutex);
-    bnh->comp_count--;
-    if(bnh->f_debug) {
-        DEBUG_OUT("Got finalize from component %i. %i remaining\n", comp_id, bnh->comp_count);
-    }
-    ABT_cond_signal(bnh->work_cond);
-    ABT_mutex_unlock(bnh->work_mutex);
-
-    return 0;
 }
 
 int bnsh_tpoint_init(struct benesh_handle *bnh, struct tpoint_rule *tp_rules,
@@ -2085,6 +1882,18 @@ err_out:
     return(1);
 }
 
+static int benesh_wireup_postconfig(struct benesh_handle *bnh, int wait)
+{
+    int i, err;
+
+    if(!bnh->dummy) {
+        CHECK_ZERO(benesh_ekt_xconnect(bnh, wait), BNH_EEKT, err_out, "componenent cross-connnect failed.\n");
+    }
+
+err_out:
+    return(0);
+}
+
 int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, int wait,
                 struct benesh_handle **handle)
 {
@@ -2117,12 +1926,19 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy, i
     DEBUG_OUT("config file is '%s'\n", conf_file);
 
     bnh->dummy = dummy;
-    *handle = bnh;
 
     CHECK_ZERO(benesh_wireup_preconfig(bnh, gcomm), err, err_out, "preconfigure wireup failed.\n");
-    success = 1;
+    CHECK_ZERO(benesh_config(bnh, conf_file), err, err_out, "configuration failed.\n");
+    CHECK_ZERO(benesh_wireup_postconfig(bnh, wait), err, err_out, "postconfig wireup failed.\n");
 
+    bnh->ready = 1;
+
+    success = 1;
     CHECK_ZERO_ROOT(benesh_check_init_success(bnh, gcomm, success), BNH_EINCONST, err_out_nompi, "root detected some ranks failed init.\n");
+    
+    *handle = bnh;
+
+    DEBUG_OUT("ready for workflow processing.\n");
 
     return(0);
 
@@ -2134,6 +1950,7 @@ err_out_nompi:
         free(bnh->name);
     }
     free(bnh);
+    *handle = NULL;
     return(err);
 }
 
@@ -4533,5 +4350,3 @@ int benesh_bind_var_with_size(struct benesh_handle *bnh, const char *var_name, s
     //call to benesh_bind_var_with_size()
     return(0);
 }
-
-#endif /* _BENESH_H_ */

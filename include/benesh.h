@@ -16,6 +16,7 @@ extern "C" {
 
 #define BNH_EINCONST -1 /* inconsistent state between ranks */
 #define BNH_EEKT -2 /* EKT failure */
+#define BNH_ECONF -3 /* configuration error */
 
 typedef struct benesh_handle *benesh_app_id;
 typedef void *benesh_arg;
