@@ -1,13 +1,13 @@
 #ifndef _BENESH_TYPES_H
 #define _BENESH_TYPES_H
 
-#include<abt.h>
 #include "benesh.h"
-#include<dspaces.h>
-#include<ekt.h>
-#include<margo.h>
-#include<mpi.h>
-#include"util.h"
+#include "util.h"
+#include <abt.h>
+#include <dspaces.h>
+#include <ekt.h>
+#include <margo.h>
+#include <mpi.h>
 
 #define BNH_WORK_OBJ 0
 #define BNH_WORK_RULE 1
@@ -130,7 +130,6 @@ struct wf_target {
     struct sub_rule *subrule;
 };
 
-
 struct work_node {
     struct work_node *prev, *next;
     int type;
@@ -185,54 +184,6 @@ struct wf_method {
     void *arg;
 };
 
-struct benesh_handle {
-    int rank;
-    int grank;
-    int comm_size;
-    ekt_id ekth;
-    MPI_Comm mycomm;
-    MPI_Comm gcomm;
-    int root_rank;
-    int root_drank;
-    char *name;
-    struct xc_config *conf;
-    struct tpoint_handle *tph;
-    struct wf_component *comps;
-    struct wf_target *tgts;
-    struct xc_int_hash_map *known_objs;
-    int num_tgts;
-    int comp_count;
-    int comp_id;
-    margo_instance_id mid;
-    ABT_mutex work_mutex;
-    ABT_cond work_cond;
-    ABT_mutex db_mutex;
-    ABT_mutex data_mutex;
-    ABT_cond data_cond;
-    struct work_node *wqueue_head;
-    struct work_node *wqueue_tail;
-    int gvar_count, ifvar_count;
-    struct wf_var *gvars;
-    struct wf_var *ifvars;
-    int mth_count;
-    struct wf_method *mths;
-    ekt_type tp_type;
-    ekt_type work_type;
-    ekt_type fini_type;
-    int dom_count;
-    struct wf_domain *doms;
-    dspaces_client_t dsp;
-    int rdvRanks;
-    int ready;
-    int f_debug;
-
-    int dummy;
-    struct wf_domain *dummy_dom;
-    struct wf_component *dummy_comp;
-    struct wf_var *dummy_vars;
-    int num_dummy_vars;
-
-    struct bnh_pvec *components;
-};
+struct benesh_handle;
 
 #endif // _BENESH_TYPES_H

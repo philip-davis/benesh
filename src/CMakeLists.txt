@@ -11,17 +11,19 @@ set (benesh-pkg "share/cmake/benesh")
 
 add_library(benesh 
             benesh.c
+            beneshp.c
             benesh-ekt.c
             benesh-logging.c
             benesh-config.c
+            benesh-cohort.c
+            benesh-tasks.c
             util.c
 )
 
 target_link_libraries(benesh PRIVATE ${MPI_C_LIBRARIES})
 
 target_include_directories(benesh PRIVATE
-                           ${MPI_CXX_INCLUDE_PATH}
-                           ${CMAKE_CURRENT_SOURCE_DIR}/parser)
+                           ${MPI_CXX_INCLUDE_PATH})
 target_compile_options(benesh PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 target_link_libraries(benesh PRIVATE
                       ${MPI_CXX_LIBRARIES} 

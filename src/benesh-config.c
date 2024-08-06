@@ -1,19 +1,23 @@
 #include "benesh-config.h"
-#include "xc_config.h"
 #include "benesh-logging.h"
+#include "parser/xc_config.h"
 
-int benesh_config(struct benesh_handle *bnh, const char *conf_file)
+#include <mpi.h>
+
+struct xc_config *benesh_config_load(const char *conf_file, MPI_Comm comm)
 {
+    TRACE_OUT;
+    struct xc_config *conf;
     int err;
 
-    bnh->conf = xc_fparse(conf_file, bnh->gcomm);
-    if(!bnh->conf) {
+    // conf = xc_fparse(conf_file, comm);
+    if(!conf) {
         ERR_OUT(BNH_ECONF, err_out, "configuration parsing failed.\n");
     }
 
     // ...
 
-    return(0);
+    return (conf);
 err_out:
-    return(err);
+    return (NULL);
 }

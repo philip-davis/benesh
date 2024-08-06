@@ -1,5 +1,5 @@
 #ifndef _BENESH_TIMING_H
-#define  _BENESH_TIMING_H
+#define _BENESH_TIMING_H
 
 #ifdef USE_APEX
 #include <apex.h>

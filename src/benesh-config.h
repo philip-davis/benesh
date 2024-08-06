@@ -2,7 +2,9 @@
 #define _BENESH_CONFIG_H
 
 #include "benesh-types.h"
+#include "parser/xc_config.h"
 
-int benesh_config(struct benesh_handle *bnh, const char *conf_file);
+// TODO
+struct xc_config *benesh_config_load(const char *conf_file, MPI_Comm comm);
 
 #endif // _BENESH_CONFIG_H

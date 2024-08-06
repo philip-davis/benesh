@@ -1,12 +1,16 @@
-#include "benesh.h"
 #include "benesh-ekt.h"
+#include "benesh-cohort.h"
 #include "benesh-logging.h"
+#include "benesh-tasks.h"
 #include "benesh-timing.h"
 #include "benesh-types.h"
+#include "benesh.h"
+#include "beneshp.h"
 #include "util.h"
 #include <ekt.h>
 
-#include<unistd.h>
+#include <inttypes.h>
+#include <unistd.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -19,17 +23,20 @@ struct obj_entry *get_object_entry(struct benesh_handle *bnh,
 
 int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
 char *tpoint_tostr(const char *comp_name, struct tpoint_rule *rule);
-struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj, int nmappings, char **map_names, int64_t *vals);
+struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
+                           int nmappings, char **map_names, int64_t *vals);
 int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt);
 /* temp */
 
-
-static int deserialize_work(void *buf, void *bnh_v, void **work_v)
+/*
+int deserialize_work(void *buf, void *bnh_v, void **work_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct work_announce *work = malloc(sizeof(*work));
     struct wf_target *tgt;
     size_t nmap;
+
+    assert(0 && "not implemented");
 
     work->comp_id = ((uint32_t *)buf)[0];
     work->tgt_id = ((uint32_t *)buf)[1];
@@ -45,7 +52,7 @@ static int deserialize_work(void *buf, void *bnh_v, void **work_v)
     return (0);
 }
 
-static int serialize_work(void *work_v, void *bnh_v, void **buf)
+int serialize_work(void *work_v, void *bnh_v, void **buf)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct work_announce *work = (struct work_announce *)work_v;
@@ -66,7 +73,7 @@ static int serialize_work(void *work_v, void *bnh_v, void **buf)
     return (buf_size);
 }
 
-static int work_watch(void *work_v, void *bnh_v)
+int work_watch(void *work_v, void *bnh_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct work_announce *work = (struct work_announce *)work_v;
@@ -121,7 +128,8 @@ static int work_watch(void *work_v, void *bnh_v)
 
     ABT_mutex_unlock(bnh->db_mutex);
     activate_subs(bnh, &wnode);
-    // activate_subs only signals the handler if some sub is satsified. This object being
+    // activate_subs only signals the handler if some sub is satsified. This
+object being
     // realized may mean we are done with a touchpoint.
     DEBUG_OUT("Signalling handler to restart\n");
     ABT_cond_signal(bnh->work_cond);
@@ -130,7 +138,7 @@ static int work_watch(void *work_v, void *bnh_v)
     return (0);
 }
 
-static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
+int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct tpoint_rule *rules = bnh->tph->rules;
@@ -157,7 +165,7 @@ static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
 }
 
 
-static int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
+int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct tpoint_rule *rules = bnh->tph->rules;
@@ -181,7 +189,7 @@ static int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
     return (0);
 }
 
-static int tpoint_watch(void *tpoint_v, void *bnh_v)
+int tpoint_watch(void *tpoint_v, void *bnh_v)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct tpoint_rule *rules = bnh->tph->rules;
@@ -203,7 +211,8 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
                 tpoint_tostr(bnh->comps[tpoint->comp_id].name, rule));
         DEBUG_OUT("  with the mappings:\n");
         for(i = 0; i < rule->nmappings; i++) {
-            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i], tpoint->tp_vars[i]);
+            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i],
+tpoint->tp_vars[i]);
         }
     }
 
@@ -225,9 +234,10 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
     APEX_TIMER_STOP(0);
     return 0;
 }
-
+*/
 static int serialize_fini(void *fini_v, void *bnh_v, void **buf)
 {
+    TRACE_OUT;
     uint32_t *comp_id = (uint32_t *)fini_v;
 
     *buf = malloc(sizeof(*comp_id));
@@ -238,6 +248,7 @@ static int serialize_fini(void *fini_v, void *bnh_v, void **buf)
 
 static int deserialize_fini(void *buf, void *bnh_v, void **fini_v)
 {
+    TRACE_OUT;
     uint64_t *comp_id = malloc(sizeof(*comp_id));
 
     *comp_id = *(uint32_t *)buf;
@@ -249,78 +260,173 @@ static int deserialize_fini(void *buf, void *bnh_v, void **fini_v)
 
 static int fini_watch(void *fini_v, void *bnh_v)
 {
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
+    struct benesh_taskman *btm;
+    struct benesh_cohort *bco;
     uint32_t comp_id = *(uint32_t *)fini_v;
+    int conn_count;
+    int err;
 
-    ABT_mutex_lock(bnh->work_mutex);
-    bnh->comp_count--;
-    if(bnh->f_debug) {
-        DEBUG_OUT("Got finalize from component %i. %i remaining\n", comp_id, bnh->comp_count);
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
-    ABT_cond_signal(bnh->work_cond);
-    ABT_mutex_unlock(bnh->work_mutex);
 
-    return 0;
+    bco = benesh_get_cohort(bnh);
+    if(!bco) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad cohort handle.\n");
+    }
+
+    btm = benesh_get_taskman(bnh);
+    if(!btm) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad task manager handle.\n");
+    }
+
+    CHECK_ZERO(benesh_taskman_lock(btm), err, err_out,
+               "failed to lock task manager.\n");
+    CHECK_ZERO(benesh_disconnect(bco, comp_id), err, err_out_signal,
+               "failed to disconnect component %" PRIu32 "\n", comp_id);
+    if(benesh_debug_enabled()) {
+        benesh_connected_count(bco, &conn_count);
+        DEBUG_OUT("Got finalize from component %" PRIu32 ". %i remaining\n",
+                  comp_id, conn_count);
+    }
+
+    CHECK_ZERO(benesh_taskman_signal(btm), err, err_out_unlock,
+               "failed to signal task manager.\n");
+    CHECK_ZERO(benesh_taskman_unlock(btm), err, err_out,
+               "failed to unlock task manager. Possible deadlock!!!\n");
+
+    return (0);
+
+err_out_signal:
+    CHECK_ZERO(benesh_taskman_signal(btm), err, err_out_unlock,
+               "failed to signal task manager.\n");
+err_out_unlock:
+    CHECK_ZERO(benesh_taskman_unlock(btm), err, err_out,
+               "failed to unlock task manager. Possible deadlock!!!\n");
+err_out:
+    return (err);
 }
 
-int benesh_init_ekt(struct benesh_handle *bnh)
+struct bnhekt_handle *benesh_ekt_init(const char *name, MPI_Comm comm,
+                                      margo_instance_id mid, void *bnhv)
 {
+    TRACE_OUT;
+    struct bnhekt_handle *bekth;
     int err;
+
+    if(!name || !*name) {
+        ERR_OUT(BNH_EINVAL, err_out, "name missing.\n");
+    }
+
+    bekth = malloc(sizeof(*bekth));
 
     DEBUG_OUT("initializing EKT.\n");
 
-    CHECK_ZERO(ekt_init(&bnh->ekth, bnh->name, bnh->mycomm, bnh->mid), BNH_EEKT, err_out, "ekt_init failed with %i\n", err);
-    
-    CHECK_ZERO(ekt_register(bnh->ekth, BNH_EKT_WORK, serialize_work, deserialize_work, bnh, &bnh->work_type), BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
-    CHECK_ZERO(ekt_watch(bnh->ekth, bnh->work_type, work_watch), BNH_EEKT, err_out, "ekt_watch failed with %i\n", err);
+    CHECK_ZERO(ekt_init(&bekth->ekth, name, comm, mid), BNH_EEKT, err_out,
+               "ekt_init failed with %i\n", err);
 
-    CHECK_ZERO(ekt_register(bnh->ekth, BNH_EKT_FINI, serialize_fini, deserialize_fini,
-                bnh, &bnh->fini_type), BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
-    CHECK_ZERO(ekt_watch(bnh->ekth, bnh->fini_type, fini_watch), BNH_EEKT, err_out, "ekt_watch failed with %i\n", err);
+    // CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_WORK, serialize_work,
+    // deserialize_work, bnhv, &bekth->work_type), BNH_EEKT, err_out,
+    // "ekt_register failed with %i\n", err); CHECK_ZERO(ekt_watch(bekth->ekth,
+    // bekth->work_type, work_watch), BNH_EEKT, err_out, "ekt_watch failed with
+    // %i\n", err);
 
-    CHECK_ZERO(ekt_register(bnh->ekth, BNH_EKT_TP, serialize_tpoint, deserialize_tpoint,
-                bnh, &bnh->tp_type), BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
-    CHECK_ZERO(ekt_watch(bnh->ekth, bnh->tp_type, tpoint_watch), BNH_EEKT, err_out, "ekt_watch failed with %i\n", err);
+    CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_FINI, serialize_fini,
+                            deserialize_fini, bnhv, &bekth->fini_type),
+               BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
+    CHECK_ZERO(ekt_watch(bekth->ekth, bekth->fini_type, fini_watch), BNH_EEKT,
+               err_out, "ekt_watch failed with %i\n", err);
+
+    // CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_TP, serialize_tpoint,
+    // deserialize_tpoint, bnhv, &bekth->tp_type), BNH_EEKT, err_out,
+    // "ekt_register failed with %i\n", err); CHECK_ZERO(ekt_watch(bekth->ekth,
+    // bekth->tp_type, tpoint_watch), BNH_EEKT, err_out, "ekt_watch failed with
+    // %i\n", err);
 
     DEBUG_OUT("EKT initialized.\n");
 
-    return(0);
-    
+    return (bekth);
+
 err_out:
-    return(err);
+    return (NULL);
 }
 
-int benesh_ekt_xconnect(struct benesh_handle *bnh, int wait)
+int benesh_ekt_send_fini(struct bnhekt_handle *bekth, uint32_t comp_id)
 {
-    int i, err;
-    struct wf_component *comp;
+    TRACE_OUT;
+    int err;
+
+    if(!bekth) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad handle.\n");
+    }
+
+    DEBUG_OUT("sending fini\n");
+    CHECK_ZERO(ekt_tell(bekth->ekth, NULL, bekth->fini_type, &comp_id),
+               BNH_EEKT, err_out, "ekt_tell failed.\n");
+
+    return (0);
+err_out:
+    return (err);
+}
+
+int benesh_ekt_xconnect(struct bnhekt_handle *bekth, struct benesh_cohort *bco,
+                        MPI_Comm comm, int wait)
+{
+    TRACE_OUT;
+    int rank;
+    struct benesh_component *comp;
+    char *name;
     struct bnh_pvec *cvec;
     bnh_pvec_iter bi;
+    int i, err, flag;
 
-    ekt_enable(bnh->ekth);
+    if(!bekth) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad handle.\n");
+    }
+
+    if(!bco) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
+    }
+
+    ekt_enable(bekth->ekth);
     if(wait) {
-        if(!bnh->rank) {
+        CHECK_ZERO(MPI_Comm_rank(comm, &rank), BNH_EINVAL, err_out,
+                   "bad communicator.\n");
+        if(!rank) {
             DEBUG_OUT("waiting for bidirectional communication with other "
-                    "components.\n");
-            cvec = bnh->components;
-            for(bi = benesh_pvec_begin(cvec); bi != BNH_ITER_END; bi=benesh_pvec_next(cvec, bi)) {
-                comp = *bi;
-                if(strcmp(comp->app, bnh->name) != 0) {
+                      "components.\n");
+            cvec = benesh_get_components(bco);
+            if(!cvec) {
+                ERR_OUT(BNH_EFAULT, err_out, "failed to get components.");
+            }
+            BNH_PVEC_FOREACH(comp, bi, cvec)
+            {
+                CHECK_ZERO(benesh_comp_is_me(comp, &flag), BNH_EFAULT, err_out,
+                           "bad component pointer.\n");
+                if(!flag) {
+                    name = benesh_comp_name(comp);
+                    if(!name) {
+                        ERR_OUT(BNH_EFAULT, err_out,
+                                "failed to get component name.\n");
+                    }
                     DEBUG_OUT("achieving bidi status with component '%s'\n",
-                            comp->app);
-                    ekt_is_bidi(bnh->ekth, comp->app, 1);
+                              name);
+                    ekt_is_bidi(bekth->ekth, name, 1);
                 }
             }
         }
-        CHECK_ZERO(MPI_Barrier(bnh->gcomm), BNH_EINVAL, err_out, "invalid communicator.\n");
+        CHECK_ZERO(MPI_Barrier(comm), BNH_EINVAL, err_out,
+                   "invalid communicator.\n");
     } else {
         DEBUG_OUT("proceeding without waiting for other components.\n");
     }
 
-    return(0);
+    return (0);
 
 err_out:
-    return(err);
+    return (err);
 }
 
 #if defined(__cplusplus)
