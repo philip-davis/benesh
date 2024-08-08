@@ -11,17 +11,20 @@ extern "C" {
 #endif
 
 #define BNH_EINVAL EINVAL /* invalid argument */
-#define BNH_EPERM EPERM   /* bad external state (e.g. MPI not initialized yet) \
+#define BNH_EPERM                                                              \
+    EPERM                 /* bad external state (e.g. MPI not initialized yet) \
                            */
 #define BNH_EIO EIO       /* communication failure */
 #define BNH_EFAULT EFAULT /* bad pointer */
 #define BNH_ESRCH ESRCH   /* no such component */
+#define BNH_ENOMEM ENOMEM /* memory allocation failure */
 
 #define BNH_EINCONST -1 /* inconsistent state between ranks */
 #define BNH_EEKT -2     /* EKT failure */
 #define BNH_ECONF -3    /* configuration error */
 #define BNH_ESTATE -4   /* inconsistent internal state */
 #define BNH_EABT -5     /* argobots failure */
+#define BNH_ESYNC -6    /* inconsistent state between components */
 
 typedef struct benesh_handle *benesh_app_id;
 typedef void *benesh_arg;

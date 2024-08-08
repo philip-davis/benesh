@@ -1,12 +1,13 @@
 #define BNH_FROM_LOGGING
 #include "benesh-logging.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-static int f_bnh_debug = 0;
-static int f_bnh_trace = 0;
-static int bnh_log_rank = -1;
+static atomic_int f_bnh_debug = 0;
+static atomic_int f_bnh_trace = 0;
+static atomic_int bnh_log_rank = -1;
 
 int benesh_debug_enabled() { return (f_bnh_debug); }
 

@@ -3,28 +3,32 @@
 
 #include "benesh-cohort.h"
 #include "benesh-ekt.h"
+#include "benesh-queue.h"
+#include "benesh-targets.h"
 #include "benesh-tasks.h"
 #include "benesh-types.h"
 #include "parser/xc_config.h"
 
 #include <margo.h>
 #include <mpi.h>
+#include <stdatomic.h>
 
 struct benesh_handle {
-    int rank;        // native
-    int grank;       // native
-    int comm_size;   // native
-    MPI_Comm mycomm; // native
-    MPI_Comm gcomm;  // native
-    int root_rank;   // native
-    int root_drank;  // native
-    char *name;      // native
-    int ready;       // native;
-    int dummy;       // native
+    int rank;           // native
+    int grank;          // native
+    int comm_size;      // native
+    MPI_Comm mycomm;    // native
+    MPI_Comm gcomm;     // native
+    int root_rank;      // native
+    int root_drank;     // native
+    char *name;         // native
+    atomic_int f_ready; // native;
+    int f_dummy;        // native
     struct bnhekt_handle *bekth;
     margo_instance_id mid; // native
     struct benesh_cohort *bco;
     struct benesh_taskman *btm;
+    benesh_rulebook rules;
 
     struct xc_config *conf;             // native?
     struct tpoint_handle *tph;          // touchpoint interface

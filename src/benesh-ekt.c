@@ -1,6 +1,7 @@
 #include "benesh-ekt.h"
 #include "benesh-cohort.h"
 #include "benesh-logging.h"
+#include "benesh-targets.h"
 #include "benesh-tasks.h"
 #include "benesh-timing.h"
 #include "benesh-types.h"
@@ -28,116 +29,139 @@ struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
 int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt);
 /* temp */
 
-/*
-int deserialize_work(void *buf, void *bnh_v, void **work_v)
+static int serialize_work(void *work_v, void *bnh_v, void **buf)
 {
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct work_announce *work = malloc(sizeof(*work));
-    struct wf_target *tgt;
+    struct work_announce *work = (struct work_announce *)work_v;
+    struct benesh_rule *rule;
+    size_t buf_size;
     size_t nmap;
+    int err;
 
-    assert(0 && "not implemented");
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+
+    if(!buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer.\n");
+    }
+
+    if(!work) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.");
+    }
+
+    ASSIGN_NOT_NULL(benesh_get_rule_by_id(bnh, work->rule_id), rule, BNH_ESYNC,
+                    err_out, "received work that does not match a rule.\n");
+    CHECK_ZERO(benesh_rule_get_nvar(rule, &nmap), BNH_EFAULT, err_out,
+               "target access failed.\n");
+
+    buf_size = sizeof(work->comp_id) + sizeof(work->rule_id) +
+               sizeof(work->subrule_id) + nmap * sizeof(*work->tgt_vars);
+    ASSIGN_NOT_NULL(malloc(buf_size), *buf, BNH_ENOMEM, err_out,
+                    "could not allocate buffer.\n");
+
+    ((uint32_t *)(*buf))[0] = work->comp_id;
+    ((uint32_t *)(*buf))[1] = work->rule_id;
+    ((uint32_t *)(*buf))[2] = work->subrule_id;
+    if(nmap) {
+        memcpy(&((uint32_t *)(*buf))[3], work->tgt_vars,
+               nmap * sizeof(*work->tgt_vars));
+    }
+
+    return (buf_size);
+err_out:
+    return (-1);
+}
+
+static int deserialize_work(void *buf, void *bnh_v, void **work_v)
+{
+    TRACE_OUT;
+    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
+    struct work_announce *work;
+    struct benesh_rule *rule;
+    size_t nmap;
+    int err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+
+    if(!buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer.\n");
+    }
+
+    if(!work_v) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target structure.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*work)), work, BNH_ENOMEM, err_out,
+                    "could not allocate buffer.\n");
 
     work->comp_id = ((uint32_t *)buf)[0];
-    work->tgt_id = ((uint32_t *)buf)[1];
+    work->rule_id = ((uint32_t *)buf)[1];
     work->subrule_id = ((uint32_t *)buf)[2];
-    tgt = &bnh->tgts[work->tgt_id];
-    nmap = tgt->num_vars;
-    work->tgt_vars = malloc(nmap * sizeof(*work->tgt_vars));
-    memcpy(work->tgt_vars, &((uint32_t *)buf)[3],
-           nmap * sizeof(*work->tgt_vars));
+    work->tgt_vars = NULL;
+    ASSIGN_NOT_NULL(benesh_get_rule_by_id(bnh, work->rule_id), rule, BNH_ESYNC,
+                    err_out, "received work that does not match a rule.\n");
+    CHECK_ZERO(benesh_rule_get_nvar(rule, &nmap), BNH_EFAULT, err_out,
+               "target access failed.\n");
+    if(nmap) {
+        ASSIGN_NOT_NULL(malloc(nmap * sizeof(*work->tgt_vars)), work->tgt_vars,
+                        BNH_ENOMEM, err_out,
+                        "could not allocate target variables.\n");
+        memcpy(work->tgt_vars, &((uint32_t *)buf)[3],
+               nmap * sizeof(*work->tgt_vars));
+    }
 
     *work_v = work;
 
     return (0);
+err_out:
+    return (err);
 }
 
-int serialize_work(void *work_v, void *bnh_v, void **buf)
+static int work_watch(void *work_v, void *bnh_v)
 {
-    struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct work_announce *work = (struct work_announce *)work_v;
-    struct wf_target *tgt = &bnh->tgts[work->tgt_id];
-    size_t buf_size;
-    size_t nmap = tgt->num_vars;
-
-    buf_size = sizeof(work->comp_id) + sizeof(work->tgt_id) +
-               sizeof(work->subrule_id) + nmap * sizeof(*work->tgt_vars);
-    *buf = malloc(buf_size);
-
-    ((uint32_t *)(*buf))[0] = work->comp_id;
-    ((uint32_t *)(*buf))[1] = work->tgt_id;
-    ((uint32_t *)(*buf))[2] = work->subrule_id;
-    memcpy(&((uint32_t *)(*buf))[3], work->tgt_vars,
-           nmap * sizeof(*work->tgt_vars));
-
-    return (buf_size);
-}
-
-int work_watch(void *work_v, void *bnh_v)
-{
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct work_announce *work = (struct work_announce *)work_v;
     struct work_node wnode;
     struct obj_entry *ent;
-    int i;
+    int my_comp_id;
+    size_t nvar;
+    int i, err;
 
-    APEX_FUNC_TIMER_START(work_watch);
-    while(!bnh->ready) {
-        // Change to wait condition
-        sleep(1);
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
+
+    if(!work) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.\n");
+    }
+
+    benesh_sleep_til_ready(bnh);
 
     DEBUG_OUT("received work from comp %" PRIu32 ", tgt_id = %" PRIu32
               ", subrule = %" PRIu32 "\n",
-              work->comp_id, work->tgt_id, work->subrule_id);
+              work->comp_id, work->rule_id, work->subrule_id);
 
-    if(work->comp_id == bnh->comp_id) {
+    CHECK_ZERO(benesh_my_comp_id(bnh, &my_comp_id), err, err_out,
+               "could not retrieve my own component ID.\n");
+    if(work->comp_id == my_comp_id) {
         DEBUG_OUT("work is from myself...ignoring.\n");
-        APEX_TIMER_STOP(0);
-        return 0;
+        return (0);
     }
 
-    wnode.type = BNH_WORK_ANNOUNCE;
-    wnode.tgt = &bnh->tgts[work->tgt_id];
-    wnode.subrule = work->subrule_id;
-    wnode.var_maps = malloc(sizeof(*wnode.var_maps) * wnode.tgt->num_vars);
-    memcpy(wnode.var_maps, work->tgt_vars,
-           sizeof(*wnode.var_maps) * wnode.tgt->num_vars);
-
-    DEBUG_OUT("received work for target %" PRIu32 ", subrule %" PRId32 "\n",
-              work->tgt_id, work->subrule_id);
-    if(bnh->f_debug) {
-        for(i = 0; i < wnode.tgt->num_vars; i++) {
-            DEBUG_OUT(" tgt_var %i = %" PRIu64 "\n", i, wnode.var_maps[i]);
-        }
-    }
-    APEX_NAME_TIMER_START(1, "db_lock_wwa");
-    ABT_mutex_lock(bnh->db_mutex);
-    APEX_TIMER_STOP(1);
-    ent = get_object_entry(bnh, wnode.tgt, wnode.subrule, wnode.var_maps, 1);
-    if(!ent) {
-        fprintf(stderr,
-                "ERROR: null entry when realizing work (shouldn't happen).\n");
-    }
-    if(ent->realized) {
-        fprintf(stderr,
-                "WARNING: trying to realize work that already is realized:\n");
-    }
-    ent->realized = 1;
-    DEBUG_OUT(" realized entry %p\n", (void *)ent);
-
-    ABT_mutex_unlock(bnh->db_mutex);
-    activate_subs(bnh, &wnode);
-    // activate_subs only signals the handler if some sub is satsified. This
-object being
-    // realized may mean we are done with a touchpoint.
-    DEBUG_OUT("Signalling handler to restart\n");
-    ABT_cond_signal(bnh->work_cond);
-    APEX_TIMER_STOP(0);
+    benesh_add_import_task_by_ids(bnh, work->rule_id, work->subrule_id,
+                                  work->tgt_vars);
 
     return (0);
+err_out:
+    return (err);
 }
 
+/*
 int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
 {
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
@@ -163,7 +187,6 @@ int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
 
     return (buf_size);
 }
-
 
 int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
 {
@@ -239,72 +262,73 @@ static int serialize_fini(void *fini_v, void *bnh_v, void **buf)
 {
     TRACE_OUT;
     uint32_t *comp_id = (uint32_t *)fini_v;
+    int err;
 
-    *buf = malloc(sizeof(*comp_id));
+    if(!*buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer pointer.\n");
+    }
+    if(!comp_id) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.\n");
+    }
+    ASSIGN_NOT_NULL(malloc(sizeof(*comp_id)), *buf, BNH_ENOMEM, err_out,
+                    "could not allocate buffer.\n");
     *(uint32_t *)(*buf) = *comp_id;
 
     return (sizeof(*comp_id));
+err_out:
+    return (-1);
 }
 
 static int deserialize_fini(void *buf, void *bnh_v, void **fini_v)
 {
     TRACE_OUT;
-    uint64_t *comp_id = malloc(sizeof(*comp_id));
+    uint64_t *comp_id;
+    int err;
 
+    if(!buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer.\n");
+    }
+
+    if(!fini_v) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target structure.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*comp_id)), comp_id, BNH_ENOMEM, err_out,
+                    "could not allocate component ID.\n");
     *comp_id = *(uint32_t *)buf;
 
     *fini_v = comp_id;
 
-    return 0;
+    return (0);
+err_out:
+    return (err);
 }
 
 static int fini_watch(void *fini_v, void *bnh_v)
 {
     TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct benesh_taskman *btm;
-    struct benesh_cohort *bco;
-    uint32_t comp_id = *(uint32_t *)fini_v;
-    int conn_count;
-    int err;
+    int comp_id, conn_count;
+    int err, err2;
 
     if(!bnh) {
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
 
-    bco = benesh_get_cohort(bnh);
-    if(!bco) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad cohort handle.\n");
+    if(!fini_v) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.\n");
     }
 
-    btm = benesh_get_taskman(bnh);
-    if(!btm) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad task manager handle.\n");
-    }
+    comp_id = *(uint32_t *)fini_v;
 
-    CHECK_ZERO(benesh_taskman_lock(btm), err, err_out,
-               "failed to lock task manager.\n");
-    CHECK_ZERO(benesh_disconnect(bco, comp_id), err, err_out_signal,
-               "failed to disconnect component %" PRIu32 "\n", comp_id);
+    CHECK_ZERO(benesh_disconnect(bnh, comp_id, &conn_count), err, err_out,
+               "failed to disconnect component %i\n", comp_id);
     if(benesh_debug_enabled()) {
-        benesh_connected_count(bco, &conn_count);
-        DEBUG_OUT("Got finalize from component %" PRIu32 ". %i remaining\n",
-                  comp_id, conn_count);
+        DEBUG_OUT("Handled finalize from component %i. %i remaining\n", comp_id,
+                  conn_count);
     }
-
-    CHECK_ZERO(benesh_taskman_signal(btm), err, err_out_unlock,
-               "failed to signal task manager.\n");
-    CHECK_ZERO(benesh_taskman_unlock(btm), err, err_out,
-               "failed to unlock task manager. Possible deadlock!!!\n");
 
     return (0);
-
-err_out_signal:
-    CHECK_ZERO(benesh_taskman_signal(btm), err, err_out_unlock,
-               "failed to signal task manager.\n");
-err_out_unlock:
-    CHECK_ZERO(benesh_taskman_unlock(btm), err, err_out,
-               "failed to unlock task manager. Possible deadlock!!!\n");
 err_out:
     return (err);
 }
@@ -397,20 +421,15 @@ int benesh_ekt_xconnect(struct bnhekt_handle *bekth, struct benesh_cohort *bco,
         if(!rank) {
             DEBUG_OUT("waiting for bidirectional communication with other "
                       "components.\n");
-            cvec = benesh_get_components(bco);
-            if(!cvec) {
-                ERR_OUT(BNH_EFAULT, err_out, "failed to get components.");
-            }
+            ASSIGN_NOT_NULL(benesh_get_components(bco), cvec, BNH_EFAULT,
+                            err_out, "failed to get components.");
             BNH_PVEC_FOREACH(comp, bi, cvec)
             {
                 CHECK_ZERO(benesh_comp_is_me(comp, &flag), BNH_EFAULT, err_out,
                            "bad component pointer.\n");
                 if(!flag) {
-                    name = benesh_comp_name(comp);
-                    if(!name) {
-                        ERR_OUT(BNH_EFAULT, err_out,
-                                "failed to get component name.\n");
-                    }
+                    ASSIGN_NOT_NULL(benesh_comp_name(comp), name, BNH_EFAULT,
+                                    err_out, "failed to get component name.\n");
                     DEBUG_OUT("achieving bidi status with component '%s'\n",
                               name);
                     ekt_is_bidi(bekth->ekth, name, 1);

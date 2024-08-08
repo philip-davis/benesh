@@ -87,6 +87,14 @@
         }                                                                      \
     } while(0);
 
+#define ASSIGN_NOT_NULL(x, y, ret, jmp, estr, ...)                             \
+    do {                                                                       \
+        y = (x);                                                               \
+        if(!y) {                                                               \
+            ERR_OUT(ret, jmp, estr, ##__VA_ARGS__);                            \
+        }                                                                      \
+    } while(0);
+
 #endif // _BENESH_LOGGING_H
 
 int benesh_trace_enabled();

@@ -2,15 +2,18 @@
 #include "benesh-logging.h"
 #include "benesh.h"
 #include "util.h"
+
+#include <abt.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 
 struct benesh_cohort {
     struct bnh_pvec *cvec;
-    size_t conn_count;
+    ABT_mutex mtx;
 };
 
 struct benesh_component {
-    int connected;
+    atomic_int connected;
     int id;
     char *app;
     char *name;
@@ -18,7 +21,7 @@ struct benesh_component {
     int isme;
 };
 
-int benesh_disconnect(struct benesh_cohort *bco, int comp_id)
+int benesh_comp_disconnect(struct benesh_cohort *bco, int comp_id)
 {
     TRACE_OUT;
     bnh_pvec_iter bi;
@@ -29,19 +32,18 @@ int benesh_disconnect(struct benesh_cohort *bco, int comp_id)
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
 
-    BNH_PVEC_FOREACH(comp, bi, bco->cvec)
-    {
-        if(comp->id == comp_id) {
-            if(comp->connected) {
-                comp->connected = 0;
-            } else {
-                WARN_OUT("component %i is not connected.\n", comp_id);
-            }
-            return (0);
-        }
+    comp = benesh_pvec_get_by_id(bco->cvec, comp_id);
+    if(!comp) {
+        ERR_OUT(BNH_ESRCH, err_out, "no component found with id %i\n", comp_id);
+    }
+    if(comp->connected) {
+        comp->connected = 0;
+    } else {
+        WARN_OUT("component %i is not connected.\n", comp_id);
     }
 
-    ERR_OUT(BNH_ESRCH, err_out, "no component found with id %i\n", comp_id);
+    return (0);
+
 err_out:
     return (err);
 }
@@ -59,11 +61,15 @@ int benesh_connected_count(struct benesh_cohort *bco, int *count)
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
 
+    CHECK_ZERO(ABT_mutex_lock(bco->mtx), BNH_EABT, err_out,
+               "failed to lock cohort.\n");
     BNH_PVEC_FOREACH(comp, bi, bco->cvec)
     {
         if(comp->connected)
             (*count)++;
     }
+    CHECK_ZERO(ABT_mutex_unlock(bco->mtx), BNH_EABT, err_out,
+               "failed to lock cohort.\n");
 
     return (0);
 err_out:
@@ -78,10 +84,24 @@ struct bnh_pvec *benesh_get_components(struct benesh_cohort *bco)
     if(!bco) {
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
-    return (bco->cvec);
 
+    return (bco->cvec);
 err_out:
     return (NULL);
+}
+
+int benesh_get_component_count(struct benesh_cohort *bco)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bco) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
+    }
+
+    return (benesh_pvec_get_len(bco->cvec));
+err_out:
+    return (-1);
 }
 
 int benesh_comp_is_me(struct benesh_component *comp, int *flag)
@@ -112,27 +132,18 @@ err_out:
     return (NULL);
 }
 
-int benesh_my_comp_id(struct benesh_cohort *bco, int *comp_id)
+int benesh_comp_id(struct benesh_component *comp, int *id)
 {
     TRACE_OUT;
-    bnh_pvec_iter bi;
-    struct benesh_component *comp;
     int err;
 
-    if(!bco) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
+    if(!comp) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad component.\n");
     }
+    *id = comp->id;
+    return (0);
 
-    BNH_PVEC_FOREACH(comp, bi, bco->cvec)
-    {
-        if(comp->isme) {
-            *comp_id = comp->id;
-            return (0);
-        }
-    }
-
-    *comp_id = BNH_COMP_NULL;
-    ERR_OUT(BNH_ESTATE, err_out, "could not find my own component.\n")
 err_out:
+    *id = -1;
     return (err);
 }

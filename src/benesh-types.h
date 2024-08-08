@@ -65,7 +65,7 @@ struct tpoint_announce {
 
 struct work_announce {
     uint32_t comp_id;
-    uint32_t tgt_id;
+    uint32_t rule_id;
     int64_t *tgt_vars;
     int32_t subrule_id;
 };
@@ -136,6 +136,7 @@ struct work_node {
     union {
         struct wf_target *tgt;
         struct work_node *link;
+        struct benesh_rule *rule;
     };
     int subrule;
     int64_t *var_maps;

@@ -18,8 +18,6 @@ struct bnhekt_handle {
     ekt_type fini_type;
 };
 
-int benesh_disconnect(struct benesh_cohort *bco, int comp_id);
-
 struct bnhekt_handle *benesh_ekt_init(const char *name, MPI_Comm comm,
                                       margo_instance_id mid, void *bnhv);
 
