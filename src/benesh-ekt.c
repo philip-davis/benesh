@@ -4,6 +4,7 @@
 #include "benesh-targets.h"
 #include "benesh-tasks.h"
 #include "benesh-timing.h"
+#include "benesh-tpoint.h"
 #include "benesh-types.h"
 #include "benesh.h"
 #include "beneshp.h"
@@ -126,8 +127,6 @@ static int work_watch(void *work_v, void *bnh_v)
     TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
     struct work_announce *work = (struct work_announce *)work_v;
-    struct work_node wnode;
-    struct obj_entry *ent;
     int my_comp_id;
     size_t nvar;
     int i, err;
@@ -161,103 +160,179 @@ err_out:
     return (err);
 }
 
-/*
-int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
+static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
 {
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
+    struct tpoint_rule *rules;
     struct tpoint_announce *tpoint = (struct tpoint_announce *)tpoint_v;
-    size_t nmappings = rules[tpoint->rule_id].nmappings;
+    struct benesh_touchpoint *btp;
+    size_t nmap;
     size_t buf_size;
-    uint32_t rule_id = tpoint->rule_id;
-    uint32_t comp_id = tpoint->comp_id;
     int64_t *mappings;
-    int i;
+    int i, err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+
+    if(!buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer.\n");
+    }
+
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.");
+    }
+
+    ASSIGN_NOT_NULL(benesh_get_tpoint_by_id(bnh, tpoint->rule_id), btp,
+                    BNH_ESYNC, err_out,
+                    "received work that does not match a rule.\n");
+    CHECK_ZERO(benesh_tp_get_nvar(btp, &nmap), BNH_EFAULT, err_out,
+               "target access failed.\n");
 
     buf_size =
-        sizeof(rule_id) + sizeof(comp_id) + (nmappings * sizeof(*mappings));
+        sizeof(tpoint->rule_id) + tpoint->comp_id + (nmap * sizeof(*mappings));
     *buf = malloc(buf_size);
+    ASSIGN_NOT_NULL(malloc(buf_size), *buf, BNH_ENOMEM, err_out,
+                    "could not allocate buffer.\n");
 
-    ((uint32_t *)(*buf))[0] = rule_id;
-    ((uint32_t *)(*buf))[1] = comp_id;
-    mappings = *buf + 2 * sizeof(uint32_t);
-    for(i = 0; i < nmappings; i++) {
-        mappings[i] = tpoint->tp_vars[i];
+    ((uint32_t *)(*buf))[0] = tpoint->rule_id;
+    ((uint32_t *)(*buf))[1] = tpoint->comp_id;
+    mappings = (int64_t *)((uint64_t)(*buf) + sizeof(tpoint->rule_id) +
+                           sizeof(tpoint->comp_id));
+    if(nmap) {
+        memcpy(mappings, tpoint->tp_vars, nmap * sizeof(*tpoint->tp_vars));
     }
 
     return (buf_size);
+err_out:
+    return (-1);
 }
 
-int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
+static int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
 {
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
-    struct tpoint_announce *tpoint = malloc(sizeof(*tpoint));
-    uint32_t rule_id = ((uint32_t *)buf)[0];
-    uint32_t comp_id = ((uint32_t *)buf)[1];
-    size_t nmappings = rules[rule_id].nmappings;
+    struct tpoint_announce *tpoint;
+    struct benesh_touchpoint *btp;
+    size_t nmap;
     int64_t *mappings;
-    int i;
+    int err;
 
-    tpoint->rule_id = rule_id;
-    tpoint->comp_id = comp_id;
-    mappings = buf + 2 * sizeof(uint32_t);
-    tpoint->tp_vars = malloc(sizeof(*tpoint->tp_vars) * nmappings);
-    for(i = 0; i < nmappings; i++) {
-        tpoint->tp_vars[i] = mappings[i];
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
+
+    if(!buf) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad buffer.\n");
+    }
+
+    if(!tpoint_v) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target structure.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*tpoint)), tpoint, BNH_ENOMEM, err_out,
+                    "could not allocate buffer.\n");
+
+    tpoint->rule_id = ((uint32_t *)buf)[0];
+    tpoint->comp_id = ((uint32_t *)buf)[1];
+    ASSIGN_NOT_NULL(benesh_get_tpoint_by_id(bnh, tpoint->rule_id), btp,
+                    BNH_ESYNC, err_out,
+                    "received work that does not match a rule.\n");
+    CHECK_ZERO(benesh_tp_get_nvar(btp, &nmap), BNH_EFAULT, err_out,
+               "target access failed.\n");
+
+    mappings = (int64_t *)((uint64_t)buf + sizeof(tpoint->rule_id) +
+                           sizeof(tpoint->comp_id));
+    tpoint->tp_vars = malloc(sizeof(*tpoint->tp_vars) * nmap);
+    memcpy(tpoint->tp_vars, mappings, nmap * sizeof(*tpoint->tp_vars));
 
     *tpoint_v = tpoint;
 
     return (0);
+err_out:
+    return (err);
 }
 
-int tpoint_watch(void *tpoint_v, void *bnh_v)
+static int tpoint_watch(void *tpoint_v, void *bnh_v)
 {
+    TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules = bnh->tph->rules;
+    struct tpoint_rule *rules;
     struct tpoint_announce *tpoint = (struct tpoint_announce *)tpoint_v;
+    struct benesh_component *comp, *tp_comp;
+    struct benesh_touchpoint *btp;
     struct pq_obj **fq_tgts;
     struct xc_list_node *tgt_obj;
-    uint32_t rule_id = tpoint->rule_id;
-    struct tpoint_rule *rule = &rules[rule_id];
-    int i;
+    struct tpoint_rule *rule;
+    char *comp_name, *tp_comp_name;
+    ;
+    int i, err;
 
-    APEX_FUNC_TIMER_START(tpoint_watch);
-    while(!bnh->ready) {
-        // Change to wait condition
-        sleep(1);
+    comp_name = tp_comp_name = NULL;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
 
-    if(bnh->f_debug) {
-        DEBUG_OUT("Touchpoint announcement received for rule %s\n",
-                tpoint_tostr(bnh->comps[tpoint->comp_id].name, rule));
-        DEBUG_OUT("  with the mappings:\n");
-        for(i = 0; i < rule->nmappings; i++) {
-            DEBUG_OUT("     [%s] => %" PRId64 "\n", rule->map_names[i],
-tpoint->tp_vars[i]);
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad input structure.\n");
+    }
+
+    benesh_sleep_til_ready(bnh);
+
+    ASSIGN_NOT_NULL(benesh_get_tpoint_by_id(bnh, tpoint->rule_id), btp,
+                    BNH_ESYNC, err_out, "receive unknown touchpoint id.\n");
+    ASSIGN_NOT_NULL(benesh_get_comp_by_id(bnh, tpoint->comp_id), comp,
+                    BNH_ESYNC, err_out, "received unknown component id.\n");
+    ASSIGN_NOT_NULL(benesh_tp_get_comp(btp), tp_comp, BNH_ESTATE, err_out,
+                    "could not access touchpoint info.\n");
+    if(comp != tp_comp) {
+        ASSIGN_NOT_NULL(benesh_comp_name(comp), comp_name, BNH_ESTATE, err_out,
+                        "could not access component info.\n");
+        ASSIGN_NOT_NULL(benesh_comp_name(tp_comp), tp_comp_name, BNH_ESTATE,
+                        err_out, "could not access component info.\n");
+        WARN_OUT("Received touchpoint id %" PRIu32
+                 "from non-matching component %s. Expected %s.\n",
+                 tpoint->rule_id, comp_name, tp_comp_name);
+        free(comp_name);
+        free(tp_comp_name);
+        comp_name = tp_comp_name = NULL;
+    }
+
+    /*
+        if(benesh_debug_enabled()) {
+            ASSIGN_NOT_NULL(benesh_tp_to_str(btp, tpoint->tp_vars), tp_str,
+       BNH_ESTATE, err_out, "could not stringify announced touchpoint.");
+            DEBUG_OUT("Received touchpoint %s from component %s.\n", tp_str,
+       comp_name); free(tp_str);
         }
-    }
 
-    DEBUG_OUT("rule has %i targets\n", rule->num_tgts);
-    fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
-    for(i = 0; i < rule->num_tgts; i++) {
-        tgt_obj = rule->tgts[i];
-        fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings, rule->map_names,
-                                 tpoint->tp_vars);
-        // This is a rather large critical section, and it blocks progress
-        // handling.
-        APEX_NAME_TIMER_START(1, "work_lock_twa");
-        ABT_mutex_lock(bnh->work_mutex);
-        APEX_TIMER_STOP(1);
-        schedule_target(bnh, fq_tgts[i]);
-        ABT_cond_signal(bnh->work_cond);
-        ABT_mutex_unlock(bnh->work_mutex);
-    }
-    APEX_TIMER_STOP(0);
-    return 0;
+        DEBUG_OUT("rule has %i targets\n", rule->num_tgts);
+        fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
+        for(i = 0; i < rule->num_tgts; i++) {
+            tgt_obj = rule->tgts[i];
+            fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings,
+       rule->map_names, tpoint->tp_vars);
+            // This is a rather large critical section, and it blocks progress
+            // handling.
+            APEX_NAME_TIMER_START(1, "work_lock_twa");
+            ABT_mutex_lock(bnh->work_mutex);
+            APEX_TIMER_STOP(1);
+            schedule_target(bnh, fq_tgts[i]);
+            ABT_cond_signal(bnh->work_cond);
+            ABT_mutex_unlock(bnh->work_mutex);
+        }
+    */
+    return (0);
+err_out:
+    if(comp_name)
+        free(comp_name);
+    if(tp_comp_name)
+        free(tp_comp_name);
+    return (err);
 }
-*/
+
 static int serialize_fini(void *fini_v, void *bnh_v, void **buf)
 {
     TRACE_OUT;

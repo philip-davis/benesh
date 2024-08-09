@@ -13,6 +13,9 @@ int benesh_connected_count(struct benesh_cohort *bco, int *count);
 
 struct bnh_pvec *benesh_get_components(struct benesh_cohort *bco);
 
+struct benesh_component *benesh_comp_get_by_id(struct benesh_cohort *bco,
+                                               int comp_id);
+
 int benesh_get_component_count(struct benesh_cohort *bco);
 
 int benesh_comp_is_me(struct benesh_component *comp, int *flag);

@@ -1,12 +1,14 @@
 #include "util.h"
 
+#include <string.h>
+
 struct bnh_pvec {
     struct bnh_pvec_entry *data;
     size_t len;
     size_t size;
 };
 
-struct bnh_pvec *benesh_pvec_new(size_t size)
+struct bnh_pvec *bnh_pvec_new(size_t size)
 {
     struct bnh_pvec *bvec = calloc(sizeof(*bvec), 1);
 
@@ -16,12 +18,12 @@ struct bnh_pvec *benesh_pvec_new(size_t size)
     return (bvec);
 }
 
-bnh_pvec_iter benesh_pvec_begin(struct bnh_pvec *bvec)
+bnh_pvec_iter bnh_pvec_begin(struct bnh_pvec *bvec)
 {
     return (bvec->len ? &bvec->data[0] : BNH_ITER_END);
 }
 
-bnh_pvec_iter benesh_pvec_next(struct bnh_pvec *bvec, bnh_pvec_iter biter)
+bnh_pvec_iter bnh_pvec_next(struct bnh_pvec *bvec, bnh_pvec_iter biter)
 {
     uint64_t idx;
 
@@ -29,7 +31,7 @@ bnh_pvec_iter benesh_pvec_next(struct bnh_pvec *bvec, bnh_pvec_iter biter)
     return ((++idx < bvec->len) ? &bvec->data[idx] : BNH_ITER_END);
 }
 
-void benesh_pvec_append(struct bnh_pvec *bvec, void *ptr, int id)
+void bnh_pvec_append(struct bnh_pvec *bvec, void *ptr, int id)
 {
     if(bvec->len >= bvec->size) {
         bvec->size *= 2;
@@ -39,7 +41,21 @@ void benesh_pvec_append(struct bnh_pvec *bvec, void *ptr, int id)
     bvec->data[bvec->len++].id = id;
 }
 
-void *benesh_pvec_get_by_id(struct bnh_pvec *bvec, int id)
+void bnh_pvec_destroy(struct bnh_pvec *bvec, int free_contents)
+{
+    void *ptr;
+    bnh_pvec_iter bi;
+
+    if(bvec) {
+        if(free_contents) {
+            BNH_PVEC_FOREACH(ptr, bi, bvec) { free(ptr); }
+        }
+        free(bvec->data);
+        free(bvec);
+    }
+}
+
+void *bnh_pvec_get_by_id(struct bnh_pvec *bvec, int id)
 {
     bnh_pvec_iter bi;
     void *ptr;
@@ -54,10 +70,50 @@ void *benesh_pvec_get_by_id(struct bnh_pvec *bvec, int id)
     return (NULL);
 }
 
-int benesh_pvec_get_len(struct bnh_pvec *bvec)
+int bnh_pvec_get_len(struct bnh_pvec *bvec)
 {
     if(!bvec) {
         return (-1);
     }
     return (bvec->len);
+}
+
+char *bnh_bracket_str(const char *prefix, const char *middle,
+                      const char *postfix)
+{
+    char *str;
+    int str_len = 1;
+
+    if(prefix) {
+        str_len += strlen(prefix);
+    }
+    if(middle) {
+        str_len += strlen(middle);
+    }
+    if(postfix) {
+        str_len += strlen(postfix);
+    }
+
+    if(!str_len) {
+        return (strdup(""));
+    }
+
+    str = malloc(str_len);
+    if(!str) {
+        return (NULL);
+    }
+    *str = '\0';
+
+    // if I use sprintf, NULL arguments are printed as (null)
+    if(prefix) {
+        strcat(str, prefix);
+    }
+    if(middle) {
+        strcat(str, middle);
+    }
+    if(postfix) {
+        strcat(str, postfix);
+    }
+
+    return (str);
 }

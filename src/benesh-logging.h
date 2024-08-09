@@ -10,8 +10,10 @@
             ABT_unit_id tid = 0;                                               \
             if(ABT_initialized())                                              \
                 ABT_thread_self_id(&tid);                                      \
-            fprintf(stderr, "Rank %i: TID: %" PRIu64 " %s:%i (%s): trace\n",   \
-                    benesh_logging_rank(), tid, __FILE__, __LINE__, __func__); \
+            fprintf(stderr,                                                    \
+                    "App: %s Rank: %i TID: %" PRIu64 " %s:%i (%s): trace\n",   \
+                    benesh_logging_name(), benesh_logging_rank(), tid,         \
+                    __FILE__, __LINE__, __func__);                             \
         }                                                                      \
     } while(0);
 
@@ -21,9 +23,10 @@
             ABT_unit_id tid = 0;                                               \
             if(ABT_initialized())                                              \
                 ABT_thread_self_id(&tid);                                      \
-            fprintf(stderr, "Rank %i: TID: %" PRIu64 " %s:%i (%s): " dstr,     \
-                    benesh_logging_rank(), tid, __FILE__, __LINE__, __func__,  \
-                    ##__VA_ARGS__);                                            \
+            fprintf(stderr,                                                    \
+                    "App: %s Rank: %i TID: %" PRIu64 " %s:%i (%s): " dstr,     \
+                    benesh_logging_name(), benesh_logging_rank(), tid,         \
+                    __FILE__, __LINE__, __func__, ##__VA_ARGS__);              \
         }                                                                      \
     } while(0);
 
@@ -32,18 +35,20 @@
         ABT_unit_id tid = 0;                                                   \
         if(ABT_initialized())                                                  \
             ABT_thread_self_id(&tid);                                          \
-        fprintf(stderr, "WARN: Rank %i: TID: %" PRIu64 " %s:%i (%s): " dstr,   \
-                benesh_logging_rank(), tid, __FILE__, __LINE__, __func__,      \
-                ##__VA_ARGS__);                                                \
+        fprintf(stderr,                                                        \
+                "WARN: App: %s Rank: %i TID: %" PRIu64 " %s:%i (%s): " dstr,   \
+                benesh_logging_name(), benesh_logging_rank(), tid, __FILE__,   \
+                __LINE__, __func__, ##__VA_ARGS__);                            \
     } while(0);
 
 #define ERR_OUT(ret, jmp, estr, ...)                                           \
     do {                                                                       \
         ABT_unit_id tid;                                                       \
         ABT_thread_self_id(&tid);                                              \
-        fprintf(stderr, "ERROR: Rank: %i: TID: %" PRIu64 " %s:%i (%s): " estr, \
-                benesh_logging_rank(), tid, __FILE__, __LINE__, __func__,      \
-                ##__VA_ARGS__);                                                \
+        fprintf(stderr,                                                        \
+                "ERROR: App: %s Rank: %i TID: %" PRIu64 " %s:%i (%s): " estr,  \
+                benesh_logging_name(), benesh_logging_rank(), tid, __FILE__,   \
+                __LINE__, __func__, ##__VA_ARGS__);                            \
         err = ret;                                                             \
         goto jmp;                                                              \
     } while(0);
@@ -54,10 +59,10 @@
         ABT_thread_self_id(&tid);                                              \
         if(!benesh_logging_rank()) {                                           \
             fprintf(stderr,                                                    \
-                    "ERROR: Rank: %i: TID: %" PRIu64 " %s:"                    \
+                    "ERROR: App: %s Rank: %i TID: %" PRIu64 " %s:"             \
                     "%i (%s): " estr,                                          \
-                    benesh_logging_rank(), tid, __FILE__, __LINE__, __func__,  \
-                    ##__VA_ARGS__);                                            \
+                    benesh_logging_name(), benesh_logging_rank(), tid,         \
+                    __FILE__, __LINE__, __func__, ##__VA_ARGS__);              \
         }                                                                      \
         err = ret;                                                             \
         goto jmp;                                                              \
@@ -95,9 +100,11 @@
         }                                                                      \
     } while(0);
 
-#endif // _BENESH_LOGGING_H
-
 int benesh_trace_enabled();
 int benesh_debug_enabled();
 int benesh_logging_rank();
 int benesh_init_logging(int rank);
+char *benesh_logging_name();
+int benesh_set_logging_name(const char *name);
+
+#endif // _BENESH_LOGGING_H

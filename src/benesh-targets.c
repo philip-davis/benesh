@@ -42,7 +42,7 @@ int benesh_get_num_rules(benesh_rulebook rules)
     if(!rules) {
         ERR_OUT(BNH_EFAULT, err_out, "bad rulebook.\n");
     }
-    return (benesh_pvec_get_len(rules));
+    return (bnh_pvec_get_len(rules));
 err_out:
     return (-1);
 }
@@ -58,4 +58,19 @@ int benesh_get_num_subrules(struct benesh_rule *rule)
     return (rule->nsubr);
 err_out:
     return (-1);
+}
+
+struct benesh_rule *benesh_rule_get_by_id(benesh_rulebook rules, int rule_id)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!rules) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad rulebook.\n");
+    }
+
+    return (bnh_pvec_get_by_id(rules, rule_id));
+
+err_out:
+    return (NULL);
 }

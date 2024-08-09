@@ -1,6 +1,7 @@
 #include "benesh-cohort.h"
 #include "benesh-core-types.h"
 #include "benesh-logging.h"
+#include "benesh-obj.h"
 #include "benesh-targets.h"
 #include "benesh-tasks.h"
 #include "util.h"
@@ -14,6 +15,32 @@ struct benesh_taskman *benesh_get_taskman(struct benesh_handle *bnh)
         return (NULL);
     }
     return (bnh->btm);
+}
+
+int benesh_signal_taskman(struct benesh_handle *bnh)
+{
+    TRACE_OUT;
+    int err, err2;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
+               "could not lock task manager.\n");
+    CHECK_ZERO(benesh_taskman_signal(bnh->btm), err, err_out_lock,
+               "could not signal task manager.\n");
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
+
+    return (0);
+err_out_lock:
+    // successful unlock will reset err. Save it.
+    err2 = err;
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
+    err = err2;
+err_out:
+    return (err);
 }
 
 struct benesh_cohort *benesh_get_cohort(struct benesh_handle *bnh)
@@ -34,8 +61,36 @@ struct benesh_rule *benesh_get_rule_by_id(struct benesh_handle *bnh, int id)
         return (NULL);
     }
 
-    rule = benesh_pvec_get_by_id(bnh->rules, id);
+    rule = benesh_rule_get_by_id(bnh->rules, id);
     return (rule);
+}
+
+struct benesh_component *benesh_get_comp_by_id(struct benesh_handle *bnh,
+                                               int id)
+{
+    TRACE_OUT;
+    struct benesh_component *comp;
+
+    if(!bnh) {
+        return (NULL);
+    }
+
+    comp = benesh_comp_get_by_id(bnh->bco, id);
+    return (comp);
+}
+
+struct benesh_touchpoint *benesh_get_tpoint_by_id(struct benesh_handle *bnh,
+                                                  int id)
+{
+    TRACE_OUT;
+    struct benesh_touchpoint *btp;
+
+    if(!bnh) {
+        return (NULL);
+    }
+
+    btp = benesh_tp_get_by_id(bnh->tpoints, id);
+    return (btp);
 }
 
 int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
@@ -169,6 +224,40 @@ err_out_unlock:
     err2 = err;
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
                "failed to unlock task manager. Possible deadlock!!!\n");
+    err = err2;
+err_out:
+    return (err);
+}
+
+int benesh_schedule_target(struct benesh_handle *bnh, struct benesh_obj *target)
+{
+    TRACE_OUT;
+    struct benesh_rule *rule;
+    int64_t *var_map;
+    int err, err2;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!target) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target.\n");
+    }
+
+    CHECK_ZERO(benesh_rule_match_target(bnh->rules, &rule, &var_map),
+               BNH_ENOENT, err_out, "cannot match target to workflow rule.\n");
+    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
+               "could not lock task manager.\n");
+    CHECK_ZERO(benesh_taskman_schedule_rule(bnh, bnh->btm, rule, var_map), err,
+               err_out_lock, "could not schedule rule.\n");
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
+
+    return (0);
+err_out_lock:
+    // succesful unlock will reset err. Save it.
+    err2 = err;
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
     err = err2;
 err_out:
     return (err);

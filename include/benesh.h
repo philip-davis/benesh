@@ -10,21 +10,33 @@
 extern "C" {
 #endif
 
-#define BNH_EINVAL EINVAL /* invalid argument */
-#define BNH_EPERM                                                              \
-    EPERM                 /* bad external state (e.g. MPI not initialized yet) \
-                           */
-#define BNH_EIO EIO       /* communication failure */
-#define BNH_EFAULT EFAULT /* bad pointer */
-#define BNH_ESRCH ESRCH   /* no such component */
-#define BNH_ENOMEM ENOMEM /* memory allocation failure */
+/* invalid argument */
+#define BNH_EINVAL EINVAL
+/* bad external state (e.g. MPI not initialized yet) */
+#define BNH_EPERM EPERM
+/* communication failure */
+#define BNH_EIO EIO
+/* bad pointer */
+#define BNH_EFAULT EFAULT
+/* no such component */
+#define BNH_ESRCH ESRCH
+/* memory allocation failure */
+#define BNH_ENOMEM ENOMEM
+/* workflow element not found */
+#define BNH_ENOENT ENOENT
 
-#define BNH_EINCONST -1 /* inconsistent state between ranks */
-#define BNH_EEKT -2     /* EKT failure */
-#define BNH_ECONF -3    /* configuration error */
-#define BNH_ESTATE -4   /* inconsistent internal state */
-#define BNH_EABT -5     /* argobots failure */
-#define BNH_ESYNC -6    /* inconsistent state between components */
+/* inconsistent state between ranks */
+#define BNH_EINCONST -1
+/* EKT failure */
+#define BNH_EEKT -2
+/* configuration error */
+#define BNH_ECONF -3
+/* inconsistent internal state */
+#define BNH_ESTATE -4
+/* argobots failure */
+#define BNH_EABT -5
+/* inconsistent state between components */
+#define BNH_ESYNC -6
 
 typedef struct benesh_handle *benesh_app_id;
 typedef void *benesh_arg;

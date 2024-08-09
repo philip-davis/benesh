@@ -1921,6 +1921,9 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy,
     }
     DEBUG_OUT("application name is '%s'\n", bnh->name);
 
+    CHECK_ZERO(benesh_set_logging_name(bnh->name), err, err_out,
+               "could not set logging name.\n");
+
     conf_file = benesh_init_conf_name(bnh, conf);
     if(!conf_file || !*(conf_file)) {
         ERR_OUT(BNH_EINVAL, err_out, "config file name must be provided.\n");

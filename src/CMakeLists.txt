@@ -16,8 +16,10 @@ add_library(benesh
             benesh-logging.c
             benesh-config.c
             benesh-cohort.c
+            benesh-obj.c
             benesh-targets.c
             benesh-tasks.c
+            benesh-tpoint.c
             util.c
 )
 

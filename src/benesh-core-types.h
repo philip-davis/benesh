@@ -3,9 +3,9 @@
 
 #include "benesh-cohort.h"
 #include "benesh-ekt.h"
-#include "benesh-queue.h"
 #include "benesh-targets.h"
 #include "benesh-tasks.h"
+#include "benesh-tpoint.h"
 #include "benesh-types.h"
 #include "parser/xc_config.h"
 
@@ -29,6 +29,7 @@ struct benesh_handle {
     struct benesh_cohort *bco;
     struct benesh_taskman *btm;
     benesh_rulebook rules;
+    benesh_tpoints tpoints;
 
     struct xc_config *conf;             // native?
     struct tpoint_handle *tph;          // touchpoint interface

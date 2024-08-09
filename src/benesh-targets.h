@@ -17,4 +17,6 @@ int benesh_get_num_rules(benesh_rulebook rules);
 
 int benesh_get_num_subrules(struct benesh_rule *rule);
 
+struct benesh_rule *benesh_rule_get_by_id(benesh_rulebook rules, int rule_id);
+
 #endif // _BENESH_TARGETS_H

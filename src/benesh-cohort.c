@@ -32,7 +32,7 @@ int benesh_comp_disconnect(struct benesh_cohort *bco, int comp_id)
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
 
-    comp = benesh_pvec_get_by_id(bco->cvec, comp_id);
+    comp = bnh_pvec_get_by_id(bco->cvec, comp_id);
     if(!comp) {
         ERR_OUT(BNH_ESRCH, err_out, "no component found with id %i\n", comp_id);
     }
@@ -90,6 +90,22 @@ err_out:
     return (NULL);
 }
 
+struct benesh_component *benesh_comp_get_by_id(struct benesh_cohort *bco,
+                                               int comp_id)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bco) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
+    }
+
+    return (bnh_pvec_get_by_id(bco->cvec, comp_id));
+
+err_out:
+    return (NULL);
+}
+
 int benesh_get_component_count(struct benesh_cohort *bco)
 {
     TRACE_OUT;
@@ -99,7 +115,7 @@ int benesh_get_component_count(struct benesh_cohort *bco)
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
 
-    return (benesh_pvec_get_len(bco->cvec));
+    return (bnh_pvec_get_len(bco->cvec));
 err_out:
     return (-1);
 }
