@@ -8,11 +8,13 @@
 
 #define MAX_VAL_STR_BYTES 21
 
+// TODO: add multiplication?
 enum bnh_obj_expr_type {
     BNH_EXPR_VAL,
     BNH_EXPR_VAR,
     BNH_EXPR_ADD,
-    BNH_EXPR_SUB
+    BNH_EXPR_SUB,
+    BNH_EXPR_MULT
 };
 
 struct benesh_obj_expr {
@@ -44,12 +46,26 @@ struct benesh_obj {
     struct bnh_pvec *vars;
 };
 
+int bensh_obj_num_parts(struct benesh_obj *obj)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+
+    return (bnh_pvec_get_len(obj->parts));
+err_out:
+    return (-1);
+}
+
 static char *benesh_expr_to_str(struct benesh_obj_expr *expr,
                                 struct bnh_pvec *vars, int depth)
 {
     TRACE_OUT;
     char *str, *val_str, *var_str, *l_str, *r_str;
-    char op_char;
+    static char op_char[] = {0, 0, '+', '-', '*'};
     int str_len;
     int err;
 
@@ -72,6 +88,7 @@ static char *benesh_expr_to_str(struct benesh_obj_expr *expr,
         return (var_str);
     case BNH_EXPR_ADD:
     case BNH_EXPR_SUB:
+    case BNH_EXPR_MULT:
         ASSIGN_NOT_NULL(benesh_expr_to_str(expr->lhs, vars, depth + 1), l_str,
                         BNH_ESTATE, err_out,
                         "error resolving left-hand side of expression.\n");
@@ -83,7 +100,6 @@ static char *benesh_expr_to_str(struct benesh_obj_expr *expr,
         str_len = (depth ? 2 : 0) + 2 + strlen(l_str) + strlen(r_str);
         ASSIGN_NOT_NULL(malloc(str_len), str, BNH_ENOMEM, err_out,
                         "buffer allocation failure.\n");
-        op_char = expr->type == BNH_EXPR_ADD ? '+' : '-';
         if(strcmp(l_str, "0") == 0 && expr->type == BNH_EXPR_SUB) {
             /*
                 unwinding a kludge in parsing. -x in expressions is internally
@@ -91,9 +107,9 @@ static char *benesh_expr_to_str(struct benesh_obj_expr *expr,
             */
             sprintf(str, "-%s", r_str);
         } else if(depth) {
-            sprintf(str, "(%s%c%s)", l_str, op_char, r_str);
+            sprintf(str, "(%s%c%s)", l_str, op_char[expr->type], r_str);
         } else {
-            sprintf(str, "%s%c%s", l_str, op_char, r_str);
+            sprintf(str, "%s%c%s", l_str, op_char[expr->type], r_str);
         }
         free(l_str);
         free(r_str);
@@ -255,7 +271,7 @@ static int benesh_obj_expr_free(struct benesh_obj_expr *expr)
     TRACE_OUT;
     int err;
 
-    if(expr && (expr->type == BNH_EXPR_ADD || expr->type == BNH_EXPR_SUB)) {
+    if(expr && (expr->type >= BNH_EXPR_ADD)) {
         CHECK_ZERO(benesh_obj_expr_free(expr->lhs), err, err_out,
                    "faield to free lhs expression. Likely memory leak.\n");
         free(expr->lhs);
@@ -297,6 +313,7 @@ static struct benesh_obj_expr *benesh_obj_expr_dup(struct benesh_obj_expr *expr)
         break;
     case BNH_EXPR_ADD:
     case BNH_EXPR_SUB:
+    case BNH_EXPR_MULT:
         ASSIGN_NOT_NULL(benesh_obj_expr_dup(expr->lhs), new_expr->lhs,
                         BNH_ENOMEM, err_out,
                         "failed to duplicate lhs expression.\n");
@@ -384,14 +401,19 @@ static int benesh_resolve_obj_expr(struct benesh_obj_expr *expr,
         break;
     case BNH_EXPR_ADD:
     case BNH_EXPR_SUB:
+    case BNH_EXPR_MULT:
         CHECK_ZERO(benesh_resolve_obj_expr(expr->lhs, var_map, &l_val), err,
                    err_out, "could not resolve left-hand expression.\n")
         CHECK_ZERO(benesh_resolve_obj_expr(expr->rhs, var_map, &r_val), err,
                    err_out, "could not resolve right-hand expression.\n")
         if(expr->type == BNH_EXPR_ADD) {
             *val = l_val + r_val;
-        } else {
+        } else if(expr->type == BNH_EXPR_SUB) {
             *val = l_val - r_val;
+        } else if(expr->type == BNH_EXPR_MULT) {
+            *val = l_val * r_val;
+        } else {
+            ERR_OUT(BNH_ESTATE, err_out, "corruption of expr->type.\n");
         }
         break;
     default:
@@ -579,4 +601,265 @@ err_out_free:
                "failed to cleanup object structure. Probable memory leak.\n");
 err_out:
     return (NULL);
+}
+
+static int benesh_expr_linear_terms(struct benesh_obj_expr *expr,
+                                    int *is_var_set, int *var, int *coeff,
+                                    int *constant)
+{
+    TRACE_OUT;
+    int l_coeff, l_const, r_coeff, r_const;
+    int err;
+
+    if(!expr) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad expression.\n");
+    }
+    if(!is_var_set || !var || !coeff || !constant) {
+        ERR_OUT(BNH_EFAULT, err_out, "best target output structure.\n");
+    }
+
+    switch(expr->type) {
+    case BNH_EXPR_VAL:
+        *constant = expr->val;
+        *coeff = 0;
+        break;
+    case BNH_EXPR_VAR:
+        if(is_var_set && expr->var != *var) {
+            // two variables in one expression
+            ERR_OUT(BNH_EINVAL, err_out,
+                    "detected an invalid expression in a rule target during "
+                    "unification. Target expressions should be linear "
+                    "equations of at most one variable.\n");
+        }
+        *constant = 0;
+        *coeff = 1;
+        *var = expr->var;
+        *is_var_set = 1;
+        break;
+    case BNH_EXPR_ADD:
+    case BNH_EXPR_SUB:
+    case BNH_EXPR_MULT:
+        CHECK_ZERO(benesh_expr_linear_terms(expr->lhs, is_var_set, var,
+                                            &l_coeff, &l_const),
+                   err, err_out,
+                   "could not linearize left hand size of expression.\n");
+        CHECK_ZERO(benesh_expr_linear_terms(expr->rhs, is_var_set, var,
+                                            &r_coeff, &r_const),
+                   err, err_out,
+                   "could not linearize left hand size of expression.\n");
+        if(expr->type == BNH_EXPR_ADD) {
+            *coeff = l_coeff + r_coeff;
+            *constant = l_const + r_const;
+        } else if(expr->type == BNH_EXPR_SUB) {
+            *coeff = l_coeff - r_coeff;
+            *constant = l_const - r_const;
+        } else if(expr->type == BNH_EXPR_MULT) {
+            // (ax+b)(cx+d) = acx^2 + (ad + bc)x + bd
+            if(l_coeff && r_coeff) {
+                // non-linear expression
+                ERR_OUT(BNH_EINVAL, err_out,
+                        "detected an invalid expression in a rule target "
+                        "during unification. Target expressions should be "
+                        "linear equations of at most one variable.\n");
+            }
+            *constant = l_const * r_const;
+            *coeff = l_coeff * r_const + l_const * r_coeff;
+        } else {
+            ERR_OUT(BNH_ESTATE, err_out, "corruption of expr->type.\n");
+        }
+        break;
+    default:
+        ERR_OUT(BNH_ESTATE, err_out, "unknown expression type %i\n",
+                expr->type);
+    }
+
+    return (0);
+err_out:
+    return (err);
+}
+
+static int benesh_unify_expr_val(struct benesh_obj_expr *expr, int64_t val,
+                                 int64_t *test_var_map, int *is_var_map_set,
+                                 int *is_viable)
+{
+    TRACE_OUT;
+    int var, coeff, constant, is_var_set;
+    int var_val;
+    int err;
+
+    if(!expr) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad expression.\n");
+    }
+    if(!test_var_map || !is_var_map_set || !is_viable) {
+        ERR_OUT(BNH_EFAULT, err_out, "best target output structure.\n");
+    }
+
+    /*
+        Solve independently as a linear equation on a single variable.
+        Ideally, we'd be solving all parts simultaneously as
+        a system of linear or even non-linear equations.
+    */
+    is_var_set = coeff = constant = 0;
+    CHECK_ZERO(
+        benesh_expr_linear_terms(expr, &is_var_set, &var, &coeff, &constant),
+        err, err_out, "could not linearize target expression.\n");
+    if(!is_var_set) {
+        if(constant == val) {
+            *is_viable = 1;
+        }
+        return (0);
+    }
+    if((val - constant) % coeff) {
+        // only integer solutions for now
+        return (0);
+    }
+    var_val = (val - constant) / coeff;
+    if(is_var_map_set[var]) {
+        if(test_var_map[var] == var_val) {
+            *is_viable = 1;
+        }
+        return (0);
+    }
+    is_var_map_set[var] = 1;
+    test_var_map[var] = var_val;
+    *is_viable = 1;
+
+    return (0);
+err_out:
+    *is_viable = 0;
+    return (err);
+}
+
+static int benesh_unify_part_target(struct benesh_obj_part *part,
+                                    struct benesh_obj_part *tgt_part,
+                                    int64_t *test_var_map, int *is_var_map_set,
+                                    int *is_viable)
+{
+    TRACE_OUT;
+    int var;
+    int is_expr_viable;
+    int err;
+
+    *is_viable = 0;
+
+    if(!part) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad part.\n");
+    }
+    if(!tgt_part) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target part.\n");
+    }
+
+    switch(tgt_part->type) {
+    case BNH_OBJ_EXPR:
+    case BNH_OBJ_VAR:
+        ERR_OUT(BNH_EINVAL, err_out, "target must be fully resolved.\n");
+    case BNH_OBJ_ID:
+        if(part->type == BNH_OBJ_ID &&
+           (strcmp(part->str, tgt_part->str) == 0)) {
+            *is_viable = 1;
+        }
+        return (0);
+    case BNH_OBJ_VAL:
+        switch(part->type) {
+        case BNH_OBJ_ID:
+            return (0);
+        case BNH_OBJ_VAL:
+            if(part->val == tgt_part->val) {
+                *is_viable = 1;
+            }
+            return (0);
+        case BNH_OBJ_VAR:
+            var = part->var;
+            if(is_var_map_set[var]) {
+                if(test_var_map[var] == tgt_part->val) {
+                    *is_viable = 1;
+                }
+                return (0);
+            }
+            is_var_map_set[var] = 1;
+            test_var_map[var] = tgt_part->val;
+            *is_viable = 1;
+            return (0);
+        case BNH_OBJ_EXPR:
+            CHECK_ZERO(benesh_unify_expr_val(part->expr, tgt_part->val,
+                                             test_var_map, is_var_map_set,
+                                             &is_expr_viable),
+                       err, err_out, "unifying expression failed.\n");
+        default:
+            ERR_OUT(BNH_ESTATE, err_out, "unknown object part type %i\n",
+                    part->type);
+        }
+    }
+
+    *is_viable = 1;
+
+    return (0);
+err_out:
+    *is_viable = 0;
+    return (err);
+}
+
+int benesh_unify_obj_target(struct benesh_obj *obj, struct benesh_obj *target,
+                            int64_t **var_map, int *is_viable)
+{
+    TRACE_OUT;
+    int npart, nvar;
+    struct benesh_obj_part *obj_part, *tgt_part;
+    int64_t *test_var_map;
+    int *is_var_map_set;
+    int is_part_viable;
+    int i, j, err;
+
+    test_var_map = NULL;
+    is_var_map_set = NULL;
+    *is_viable = 0;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!target) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target object.\n");
+    }
+    if(!var_map || !is_viable) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output target.\n");
+    }
+
+    npart = bnh_pvec_get_len(obj->parts);
+    if(npart != bnh_pvec_get_len(target->parts)) {
+        return (0);
+    }
+
+    nvar = bnh_pvec_get_len(obj->vars);
+    test_var_map = malloc(sizeof(*test_var_map) * nvar);
+    is_var_map_set = calloc(sizeof(*is_var_map_set), nvar);
+
+    for(i = 0; i < npart; i++) {
+        ASSIGN_NOT_NULL(bnh_pvec_get(obj->parts, i), obj_part, BNH_ENOENT,
+                        err_out, "missing object part.\n");
+        ASSIGN_NOT_NULL(bnh_pvec_get(target->parts, i), tgt_part, BNH_ENOENT,
+                        err_out, "missing target part.\n");
+        benesh_unify_part_target(obj_part, tgt_part, test_var_map,
+                                 is_var_map_set, &is_part_viable);
+        if(!is_part_viable) {
+            goto out_free;
+        }
+    }
+
+    *is_viable = 1;
+    *var_map = test_var_map;
+    free(is_var_map_set);
+
+    return (0);
+out_free:
+    if(test_var_map)
+        free(test_var_map);
+    if(is_var_map_set)
+        free(is_var_map_set);
+    return (0);
+err_out:
+    if(test_var_map)
+        free(test_var_map);
+    if(is_var_map_set)
+        free(is_var_map_set);
+    return (err);
 }

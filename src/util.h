@@ -29,6 +29,8 @@ bnh_pvec_iter bnh_pvec_next(struct bnh_pvec *bvec, bnh_pvec_iter biter);
 
 void bnh_pvec_append(struct bnh_pvec *bvec, void *ptr, int id);
 
+void *bnh_pvec_get(struct bnh_pvec *bvec, int idx);
+
 void *bnh_pvec_get_by_id(struct bnh_pvec *bvec, int id);
 
 int bnh_pvec_get_len(struct bnh_pvec *bvec);

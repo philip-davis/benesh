@@ -68,6 +68,7 @@ struct work_announce {
     uint32_t rule_id;
     int64_t *tgt_vars;
     int32_t subrule_id;
+    int32_t directive_id;
 };
 
 struct tpoint_handle {

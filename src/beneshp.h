@@ -25,7 +25,7 @@ void benesh_sleep_til_ready(struct benesh_handle *bnh);
 int benesh_my_comp_id(struct benesh_handle *bnh, int *comp_id);
 
 int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
-                                  int subrule_id, int64_t *tgt_vars);
+                                  int directive_id, int64_t *tgt_vars);
 
 int benesh_disconnect(struct benesh_handle *bnh, int comp_id, int *remaining);
 

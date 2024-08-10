@@ -3,6 +3,7 @@
 #include "benesh-logging.h"
 #include "benesh-obj.h"
 #include "benesh.h"
+#include "beneshp.h"
 #include "util.h"
 
 struct benesh_touchpoint {

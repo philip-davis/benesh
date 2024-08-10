@@ -14,7 +14,7 @@ struct benesh_task {
     struct benesh_task *prev;
     struct benesh_task *next;
     struct benesh_rule *rule;
-    int subrule_id;
+    int directive_id;
     int f_announce;
 };
 
@@ -135,7 +135,7 @@ err_out:
 }
 
 int benesh_enqueue_import(struct benesh_taskman *btm, struct benesh_rule *rule,
-                          int subrule_id, int64_t *tgt_vars)
+                          int directive_id, int64_t *tgt_vars)
 {
     TRACE_OUT;
     struct benesh_task *import;
@@ -150,8 +150,8 @@ int benesh_enqueue_import(struct benesh_taskman *btm, struct benesh_rule *rule,
         ERR_OUT(BNH_EFAULT, err_out, "bad rule.\n")
     }
 
-    if(subrule_id < 0 || subrule_id >= benesh_get_num_subrules(rule)) {
-        ERR_OUT(BNH_EINVAL, err_out, "bad subrule id %i.\n", subrule_id);
+    if(directive_id < 0 || directive_id >= benesh_get_num_directives(rule)) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad directive id %i.\n", directive_id);
     }
 
     CHECK_ZERO(benesh_rule_get_nvar(rule, &nvar), err, err_out,
@@ -164,7 +164,7 @@ int benesh_enqueue_import(struct benesh_taskman *btm, struct benesh_rule *rule,
                     "memory allocation failure.\n");
     import->type = BNH_TASK_IMPORT;
     import->rule = rule;
-    import->subrule_id = subrule_id;
+    import->directive_id = directive_id;
 
     CHECK_ZERO(benesh_enqueue(btm, import), err, err_free,
                "could not enqueue.\n");

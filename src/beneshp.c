@@ -94,7 +94,7 @@ struct benesh_touchpoint *benesh_get_tpoint_by_id(struct benesh_handle *bnh,
 }
 
 int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
-                                  int subrule_id, int64_t *tgt_vars)
+                                  int directive_id, int64_t *tgt_vars)
 {
     TRACE_OUT;
     struct benesh_work_node *wnode;
@@ -112,8 +112,8 @@ int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
 
     ASSIGN_NOT_NULL(benesh_get_rule_by_id(bnh, rule_id), rule, err, err_out,
                     "could get access rule.\n");
-    if(subrule_id < 0 || subrule_id >= benesh_get_num_subrules(rule)) {
-        ERR_OUT(BNH_EINVAL, err_out, "bad subrule id %i.\n", subrule_id);
+    if(directive_id < 0 || directive_id >= benesh_get_num_directives(rule)) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad directive id %i.\n", directive_id);
     }
 
     CHECK_ZERO(benesh_rule_get_nvar(rule, &nvar), err, err_out,
@@ -122,8 +122,8 @@ int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
         ERR_OUT(BNH_EFAULT, err_out, "missing mapped values.\n");
     }
 
-    CHECK_ZERO(benesh_enqueue_import(bnh->btm, rule, subrule_id, tgt_vars), err,
-               err_out, "failed to enqueue import task.\n");
+    CHECK_ZERO(benesh_enqueue_import(bnh->btm, rule, directive_id, tgt_vars),
+               err, err_out, "failed to enqueue import task.\n");
 
     return (0);
 
@@ -243,7 +243,7 @@ int benesh_schedule_target(struct benesh_handle *bnh, struct benesh_obj *target)
         ERR_OUT(BNH_EFAULT, err_out, "bad target.\n");
     }
 
-    CHECK_ZERO(benesh_rule_match_target(bnh->rules, &rule, &var_map),
+    CHECK_ZERO(benesh_find_matching_rule(bnh->rules, target, &rule, &var_map),
                BNH_ENOENT, err_out, "cannot match target to workflow rule.\n");
     CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
                "could not lock task manager.\n");

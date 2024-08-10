@@ -58,13 +58,13 @@ static int serialize_work(void *work_v, void *bnh_v, void **buf)
                "target access failed.\n");
 
     buf_size = sizeof(work->comp_id) + sizeof(work->rule_id) +
-               sizeof(work->subrule_id) + nmap * sizeof(*work->tgt_vars);
+               sizeof(work->directive_id) + nmap * sizeof(*work->tgt_vars);
     ASSIGN_NOT_NULL(malloc(buf_size), *buf, BNH_ENOMEM, err_out,
                     "could not allocate buffer.\n");
 
     ((uint32_t *)(*buf))[0] = work->comp_id;
     ((uint32_t *)(*buf))[1] = work->rule_id;
-    ((uint32_t *)(*buf))[2] = work->subrule_id;
+    ((uint32_t *)(*buf))[2] = work->directive_id;
     if(nmap) {
         memcpy(&((uint32_t *)(*buf))[3], work->tgt_vars,
                nmap * sizeof(*work->tgt_vars));
@@ -101,7 +101,7 @@ static int deserialize_work(void *buf, void *bnh_v, void **work_v)
 
     work->comp_id = ((uint32_t *)buf)[0];
     work->rule_id = ((uint32_t *)buf)[1];
-    work->subrule_id = ((uint32_t *)buf)[2];
+    work->directive_id = ((uint32_t *)buf)[2];
     work->tgt_vars = NULL;
     ASSIGN_NOT_NULL(benesh_get_rule_by_id(bnh, work->rule_id), rule, BNH_ESYNC,
                     err_out, "received work that does not match a rule.\n");
@@ -141,9 +141,9 @@ static int work_watch(void *work_v, void *bnh_v)
 
     benesh_sleep_til_ready(bnh);
 
-    DEBUG_OUT("received work from comp %" PRIu32 ", tgt_id = %" PRIu32
-              ", subrule = %" PRIu32 "\n",
-              work->comp_id, work->rule_id, work->subrule_id);
+    DEBUG_OUT("received work from comp id %" PRIu32 ", rule id %" PRIu32
+              ", directive id %" PRIu32 "\n",
+              work->comp_id, work->rule_id, work->directive_id);
 
     CHECK_ZERO(benesh_my_comp_id(bnh, &my_comp_id), err, err_out,
                "could not retrieve my own component ID.\n");
@@ -152,7 +152,7 @@ static int work_watch(void *work_v, void *bnh_v)
         return (0);
     }
 
-    benesh_add_import_task_by_ids(bnh, work->rule_id, work->subrule_id,
+    benesh_add_import_task_by_ids(bnh, work->rule_id, work->directive_id,
                                   work->tgt_vars);
 
     return (0);

@@ -55,6 +55,15 @@ void bnh_pvec_destroy(struct bnh_pvec *bvec, int free_contents)
     }
 }
 
+void *bnh_pvec_get(struct bnh_pvec *bvec, int idx)
+{
+    if(!bvec || (idx < 0 || idx >= bvec->len)) {
+        return (NULL);
+    }
+
+    return (bvec->data[idx].ptr);
+}
+
 void *bnh_pvec_get_by_id(struct bnh_pvec *bvec, int id)
 {
     bnh_pvec_iter bi;

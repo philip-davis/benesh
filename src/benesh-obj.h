@@ -9,4 +9,9 @@ struct benesh_obj *benesh_obj_resolve(struct benesh_obj *obj, int64_t *var_map);
 
 int benesh_obj_free(struct benesh_obj *obj);
 
+int bensh_obj_num_parts(struct benesh_obj *obj);
+
+int benesh_unify_obj_target(struct benesh_obj *obj, struct benesh_obj *target,
+                            int64_t **var_map, int *is_viable);
+
 #endif // _BENESH_OBJ_H
