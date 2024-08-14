@@ -18,18 +18,6 @@
 extern "C" {
 #endif
 
-/* temp */
-struct obj_entry *get_object_entry(struct benesh_handle *bnh,
-                                   struct wf_target *rule, int subrule_id,
-                                   int64_t *map_vals, int create);
-
-int activate_subs(struct benesh_handle *bnh, struct work_node *wnode);
-char *tpoint_tostr(const char *comp_name, struct tpoint_rule *rule);
-struct pq_obj *resolve_obj(struct benesh_handle *bnh, struct xc_list_node *obj,
-                           int nmappings, char **map_names, int64_t *vals);
-int schedule_target(struct benesh_handle *bnh, struct pq_obj *tgt);
-/* temp */
-
 static int serialize_work(void *work_v, void *bnh_v, void **buf)
 {
     TRACE_OUT;
@@ -300,30 +288,9 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
         comp_name = tp_comp_name = NULL;
     }
 
-    /*
-        if(benesh_debug_enabled()) {
-            ASSIGN_NOT_NULL(benesh_tp_to_str(btp, tpoint->tp_vars), tp_str,
-       BNH_ESTATE, err_out, "could not stringify announced touchpoint.");
-            DEBUG_OUT("Received touchpoint %s from component %s.\n", tp_str,
-       comp_name); free(tp_str);
-        }
+    CHECK_ZERO(benesh_tp_handle(bnh, btp, tpoint->tp_vars), err, err_out,
+               "failed handling checkpoint.\n");
 
-        DEBUG_OUT("rule has %i targets\n", rule->num_tgts);
-        fq_tgts = malloc(sizeof(*fq_tgts) * rule->num_tgts);
-        for(i = 0; i < rule->num_tgts; i++) {
-            tgt_obj = rule->tgts[i];
-            fq_tgts[i] = resolve_obj(bnh, tgt_obj, rule->nmappings,
-       rule->map_names, tpoint->tp_vars);
-            // This is a rather large critical section, and it blocks progress
-            // handling.
-            APEX_NAME_TIMER_START(1, "work_lock_twa");
-            ABT_mutex_lock(bnh->work_mutex);
-            APEX_TIMER_STOP(1);
-            schedule_target(bnh, fq_tgts[i]);
-            ABT_cond_signal(bnh->work_cond);
-            ABT_mutex_unlock(bnh->work_mutex);
-        }
-    */
     return (0);
 err_out:
     if(comp_name)
@@ -426,11 +393,11 @@ struct bnhekt_handle *benesh_ekt_init(const char *name, MPI_Comm comm,
     CHECK_ZERO(ekt_init(&bekth->ekth, name, comm, mid), BNH_EEKT, err_out,
                "ekt_init failed with %i\n", err);
 
-    // CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_WORK, serialize_work,
-    // deserialize_work, bnhv, &bekth->work_type), BNH_EEKT, err_out,
-    // "ekt_register failed with %i\n", err); CHECK_ZERO(ekt_watch(bekth->ekth,
-    // bekth->work_type, work_watch), BNH_EEKT, err_out, "ekt_watch failed with
-    // %i\n", err);
+    CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_WORK, serialize_work,
+                            deserialize_work, bnhv, &bekth->work_type),
+               BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
+    CHECK_ZERO(ekt_watch(bekth->ekth, bekth->work_type, work_watch), BNH_EEKT,
+               err_out, "ekt_watch failed with %i\n", err);
 
     CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_FINI, serialize_fini,
                             deserialize_fini, bnhv, &bekth->fini_type),
@@ -438,11 +405,11 @@ struct bnhekt_handle *benesh_ekt_init(const char *name, MPI_Comm comm,
     CHECK_ZERO(ekt_watch(bekth->ekth, bekth->fini_type, fini_watch), BNH_EEKT,
                err_out, "ekt_watch failed with %i\n", err);
 
-    // CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_TP, serialize_tpoint,
-    // deserialize_tpoint, bnhv, &bekth->tp_type), BNH_EEKT, err_out,
-    // "ekt_register failed with %i\n", err); CHECK_ZERO(ekt_watch(bekth->ekth,
-    // bekth->tp_type, tpoint_watch), BNH_EEKT, err_out, "ekt_watch failed with
-    // %i\n", err);
+    CHECK_ZERO(ekt_register(bekth->ekth, BNH_EKT_TP, serialize_tpoint,
+                            deserialize_tpoint, bnhv, &bekth->tp_type),
+               BNH_EEKT, err_out, "ekt_register failed with %i\n", err);
+    CHECK_ZERO(ekt_watch(bekth->ekth, bekth->tp_type, tpoint_watch), BNH_EEKT,
+               err_out, "ekt_watch failed with %i\n", err);
 
     DEBUG_OUT("EKT initialized.\n");
 

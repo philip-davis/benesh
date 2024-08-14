@@ -21,6 +21,11 @@ typedef struct bnh_pvec_entry *bnh_pvec_iter;
     for(bi = bnh_pvec_begin(vec); (bi != BNH_ITER_END) && (x = bi->ptr);       \
         bi = bnh_pvec_next(vec, bi))
 
+#define BNH_PVEC_FOREACH_ID(x, eid, bi, vec)                                   \
+    for(bi = bnh_pvec_begin(vec);                                              \
+        (bi != BNH_ITER_END) && (x = bi->ptr) && (eid = bi->id);               \
+        bi = bnh_pvec_next(vec, bi))
+
 struct bnh_pvec *bnh_pvec_new(size_t size);
 
 bnh_pvec_iter bnh_pvec_begin(struct bnh_pvec *bvec);
@@ -39,5 +44,13 @@ void bnh_pvec_destroy(struct bnh_pvec *bvec, int free_contents);
 
 char *bnh_bracket_str(const char *prefix, const char *middle,
                       const char *postfix);
+
+struct bnh_hash;
+
+struct bnh_hash *bnh_hash_new(size_t size, int seed);
+
+void bnh_hash_add_entry(struct bnh_hash *hash, int id, void *ptr);
+
+void *bnh_hash_lookup(struct bnh_hash *hash, int id);
 
 #endif // _BENESH_UTIL

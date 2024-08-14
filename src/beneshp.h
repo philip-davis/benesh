@@ -12,6 +12,8 @@ int benesh_signal_taskman(struct benesh_handle *bnh);
 
 struct benesh_cohort *benesh_get_cohort(struct benesh_handle *bnh);
 
+struct benesh_component *benesh_my_comp(struct benesh_handle *bnh);
+
 struct benesh_component *benesh_get_comp_by_id(struct benesh_handle *bnh,
                                                int id);
 
@@ -29,7 +31,17 @@ int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
 
 int benesh_disconnect(struct benesh_handle *bnh, int comp_id, int *remaining);
 
-int benesh_schedule_target(struct benesh_handle *bnh,
-                           struct benesh_obj *target);
+int benesh_schedule_obj(struct benesh_handle *bnh, struct benesh_obj *obj);
+
+int benesh_get_target_status(struct benesh_handle *bnh,
+                             struct benesh_rule *rule, int64_t *var_map,
+                             int *status);
+
+struct benesh_target *benesh_obj_resolve_to_tgt(struct benesh_handle *bnh,
+                                                struct benesh_obj *obj,
+                                                int64_t *var_map);
+
+struct bnh_pvec *benesh_prereq_targets(struct benesh_handle *bnh,
+                                       struct benesh_target *tgt);
 
 #endif // _BENESHP_H

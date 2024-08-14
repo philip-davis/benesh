@@ -30,6 +30,7 @@ struct benesh_handle {
     struct benesh_taskman *btm;
     benesh_rulebook rules;
     benesh_tpoints tpoints;
+    struct benesh_target_db *bdb;
 
     struct xc_config *conf;             // native?
     struct tpoint_handle *tph;          // touchpoint interface

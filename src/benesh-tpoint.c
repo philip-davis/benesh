@@ -95,7 +95,7 @@ int benesh_tp_handle(struct benesh_handle *bnh,
     TRACE_OUT;
     int ntgt;
     char *tp_str = NULL;
-    struct benesh_obj *tgt, *resolved_tgt;
+    struct benesh_obj *tgt, *resolved_obj;
     bnh_pvec_iter bi;
     int err;
 
@@ -118,19 +118,22 @@ int benesh_tp_handle(struct benesh_handle *bnh,
     DEBUG_OUT("scheduling %i targets\n", ntgt);
     BNH_PVEC_FOREACH(tgt, bi, tpoint->tgts)
     {
-        resolved_tgt = NULL;
-        ASSIGN_NOT_NULL(benesh_obj_resolve(tgt, var_map), resolved_tgt,
+        resolved_obj = NULL;
+        ASSIGN_NOT_NULL(benesh_obj_resolve(tgt, var_map), resolved_obj,
                         BNH_ESTATE, err_out, "could not resolve target.\n");
-        CHECK_ZERO(benesh_schedule_target(bnh, resolved_tgt), err, err_out_free,
+        CHECK_ZERO(benesh_schedule_obj(bnh, resolved_obj), err, err_out_free,
                    "could not schedule target.\n");
-        CHECK_ZERO(benesh_obj_free(resolved_tgt), err, err_out,
+        CHECK_ZERO(benesh_obj_free(resolved_obj), err, err_out,
                    "failed to free resolved target.\n");
     }
 
+    CHECK_ZERO(benesh_signal_taskman(bnh), err, err_out,
+               "failed to send wake to taskman.\n");
+
     return (0);
 err_out_free:
-    if(resolved_tgt) {
-        CHECK_ZERO(benesh_obj_free(resolved_tgt), err, err_out,
+    if(resolved_obj) {
+        CHECK_ZERO(benesh_obj_free(resolved_obj), err, err_out,
                    "failed to free resolved target.\n");
     }
 err_out:

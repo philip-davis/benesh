@@ -126,3 +126,81 @@ char *bnh_bracket_str(const char *prefix, const char *middle,
 
     return (str);
 }
+
+struct bnh_hash_node {
+    struct bnh_hash_node *next;
+    int id;
+    void *ptr;
+};
+
+struct bnh_hash {
+    struct bnh_hash_node **entries;
+    size_t size;
+    size_t count;
+    int seed;
+};
+
+struct bnh_hash *bnh_hash_new(size_t size, int seed)
+{
+    struct bnh_hash *hash = malloc(sizeof(*hash));
+
+    if(!size) {
+        return (NULL);
+    }
+
+    hash->size = size;
+    hash->seed = seed;
+    hash->entries = calloc(sizeof(*hash->entries), size);
+
+    return (hash);
+}
+
+void bnh_hash_add_entry(struct bnh_hash *hash, int id, void *ptr)
+{
+    int hid;
+    struct bnh_hash_node **node, *new_node;
+
+    if(!hash) {
+        return;
+    }
+
+    hid = (id * hash->seed) % hash->size;
+    if(hid < 0) {
+        hid += hash->size;
+    }
+
+    new_node = calloc(1, sizeof(*new_node));
+    new_node->id = id;
+    new_node->ptr = ptr;
+
+    node = &hash->entries[hid];
+    while(*node) {
+        node = &(*node)->next;
+    }
+    *node = new_node;
+}
+
+void *bnh_hash_lookup(struct bnh_hash *hash, int id)
+{
+    int hid;
+    struct bnh_hash_node *node;
+
+    if(!hash) {
+        return (NULL);
+    }
+
+    hid = (id * hash->seed) % hash->size;
+    if(hid < 0) {
+        hid += hash->size;
+    }
+
+    node = hash->entries[hid];
+    while(node) {
+        if(node->id == id) {
+            return (node->ptr);
+        }
+        node = node->next;
+    }
+
+    return (NULL);
+}

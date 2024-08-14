@@ -46,7 +46,7 @@ struct benesh_obj {
     struct bnh_pvec *vars;
 };
 
-int bensh_obj_num_parts(struct benesh_obj *obj)
+int benesh_obj_num_parts(struct benesh_obj *obj)
 {
     TRACE_OUT;
     int err;
@@ -58,6 +58,25 @@ int bensh_obj_num_parts(struct benesh_obj *obj)
     return (bnh_pvec_get_len(obj->parts));
 err_out:
     return (-1);
+}
+
+int benesh_obj_nvars(struct benesh_obj *obj, size_t *nvar)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!nvar) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target pointer.\n");
+    }
+
+    *nvar = bnh_pvec_get_len(obj->vars);
+    return (0);
+err_out:
+    *nvar = -1;
+    return (err);
 }
 
 static char *benesh_expr_to_str(struct benesh_obj_expr *expr,
@@ -385,9 +404,6 @@ static int benesh_resolve_obj_expr(struct benesh_obj_expr *expr,
     if(!expr) {
         ERR_OUT(BNH_EFAULT, err_out, "bad expression.\n");
     }
-    if(!var_map) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad variable map.\n");
-    }
     if(!val) {
         ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
     }
@@ -434,9 +450,6 @@ static int benesh_resolve_obj_part(struct benesh_obj_part *part,
 
     if(!part) {
         ERR_OUT(BNH_EFAULT, err_out, "bad part.\n");
-    }
-    if(!var_map) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad variable map.\n");
     }
     if(!val) {
         ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
@@ -557,9 +570,6 @@ struct benesh_obj *benesh_obj_resolve(struct benesh_obj *obj, int64_t *var_map)
 
     if(!obj) {
         ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
-    }
-    if(!var_map) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad variable map.\n");
     }
 
     npart = bnh_pvec_get_len(obj->parts);

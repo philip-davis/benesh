@@ -94,15 +94,16 @@ struct benesh_touchpoint *benesh_get_tpoint_by_id(struct benesh_handle *bnh,
 }
 
 int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
-                                  int directive_id, int64_t *tgt_vars)
+                                  int directive_id, int64_t *var_map)
 {
     TRACE_OUT;
     struct benesh_work_node *wnode;
     struct benesh_rule *rule;
-    size_t nvar;
-    int i, err;
+    struct benesh_target *tgt;
+    size_t nvar, ndir;
+    int i, err, err2;
 
-    if(!bnh || !bnh->btm || !bnh->rules) {
+    if(!bnh || !bnh->btm || !bnh->rules || !bnh->bdb) {
         ERR_OUT(BNH_EINVAL, err_out, "bad benesh handle.\n");
     }
 
@@ -112,21 +113,36 @@ int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
 
     ASSIGN_NOT_NULL(benesh_get_rule_by_id(bnh, rule_id), rule, err, err_out,
                     "could get access rule.\n");
-    if(directive_id < 0 || directive_id >= benesh_get_num_directives(rule)) {
+    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, var_map), tgt,
+                    BNH_ENOENT, err_out, "could not lookup target.\n");
+    CHECK_ZERO(benesh_rule_get_ndir(rule, &ndir), err, err_out,
+               "could not access rule.\n");
+    if(directive_id < 0 || directive_id >= ndir) {
         ERR_OUT(BNH_EINVAL, err_out, "bad directive id %i.\n", directive_id);
     }
 
     CHECK_ZERO(benesh_rule_get_nvar(rule, &nvar), err, err_out,
                "could not access rule.\n");
-    if(nvar && !tgt_vars) {
+    if(nvar && !var_map) {
         ERR_OUT(BNH_EFAULT, err_out, "missing mapped values.\n");
     }
 
-    CHECK_ZERO(benesh_enqueue_import(bnh->btm, rule, directive_id, tgt_vars),
-               err, err_out, "failed to enqueue import task.\n");
+    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
+               "failed to lock task manager.\n");
+
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "failed to unlock task manager. Probable deadlock!\n");
+    CHECK_ZERO(benesh_enqueue_import(bnh->btm, tgt, directive_id), err, err_out,
+               "failed to enqueue import task.\n");
 
     return (0);
 
+err_out_lock:
+    // successful unlock clears err. Save it.
+    err2 = err;
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "failed to unlock task manager. Probable deadlock!\n");
+    err = err2;
 err_out:
     return (err);
 }
@@ -155,7 +171,7 @@ err_out:
     return;
 }
 
-int benesh_my_comp_id(struct benesh_handle *bnh, int *comp_id)
+struct benesh_component *benesh_my_comp(struct benesh_handle *bnh)
 {
     TRACE_OUT;
     bnh_pvec_iter bi;
@@ -167,21 +183,45 @@ int benesh_my_comp_id(struct benesh_handle *bnh, int *comp_id)
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
 
-    cvec = benesh_get_components(bnh->bco);
+    ASSIGN_NOT_NULL(benesh_get_components(bnh->bco), cvec, BNH_ESTATE, err_out,
+                    "could not access cohort handle.\n");
     BNH_PVEC_FOREACH(comp, bi, cvec)
     {
         CHECK_ZERO(benesh_comp_is_me(comp, &flag), BNH_EFAULT, err_out,
                    "component inspection failed.\n");
         if(flag) {
-            CHECK_ZERO(benesh_comp_id(comp, comp_id), err, err_out,
-                       "failed to retrieve component ID.\n");
-            return (0);
+            return (comp);
         }
     }
 
-    *comp_id = BNH_COMP_NULL;
     ERR_OUT(BNH_ESTATE, err_out, "could not find my own component.\n")
 err_out:
+    return (NULL);
+}
+
+int benesh_my_comp_id(struct benesh_handle *bnh, int *comp_id)
+{
+    TRACE_OUT;
+    bnh_pvec_iter bi;
+    struct benesh_component *comp;
+    struct bnh_pvec *cvec;
+    int err, flag;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!comp_id) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    ASSIGN_NOT_NULL(benesh_my_comp(bnh), comp, BNH_ESTATE, err_out,
+                    "could not find my own component.\n");
+    CHECK_ZERO(benesh_comp_id(comp, comp_id), err, err_out,
+               "cou[le not access component.\n");
+
+    return (0);
+err_out:
+    *comp_id = BNH_COMP_NULL;
     return (err);
 }
 
@@ -229,26 +269,89 @@ err_out:
     return (err);
 }
 
-int benesh_schedule_target(struct benesh_handle *bnh, struct benesh_obj *target)
+struct benesh_target *benesh_obj_to_tgt(struct benesh_handle *bnh,
+                                        struct benesh_obj *obj)
 {
     TRACE_OUT;
+    struct benesh_target *tgt;
     struct benesh_rule *rule;
-    int64_t *var_map;
-    int err, err2;
+    int64_t *new_var_map;
+    size_t nvar;
+    int err;
 
-    if(!bnh) {
+    new_var_map = NULL;
+
+    if(!bnh || !bnh->rules || !bnh->bdb) {
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
     }
-    if(!target) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad target.\n");
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
     }
+    // Check if obj is fully resolved
+    CHECK_ZERO(benesh_find_viable_rule(bnh->rules, obj, &rule, &new_var_map),
+               BNH_ENOENT, err_out,
+               "could not find viable rule to match prerequesite target.\n");
+    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, new_var_map), tgt,
+                    BNH_ENOENT, err_out,
+                    "could not locate target in database.\n");
+    free(new_var_map);
+    return (tgt);
+err_out:
+    if(new_var_map)
+        free(new_var_map);
+    return (NULL);
+}
 
-    CHECK_ZERO(benesh_find_matching_rule(bnh->rules, target, &rule, &var_map),
-               BNH_ENOENT, err_out, "cannot match target to workflow rule.\n");
+struct benesh_target *benesh_obj_resolve_to_tgt(struct benesh_handle *bnh,
+                                                struct benesh_obj *obj,
+                                                int64_t *var_map)
+{
+    TRACE_OUT;
+    struct benesh_target *tgt;
+    struct benesh_obj *resolved_obj;
+    struct benesh_rule *rule;
+    size_t nvar;
+    int err;
+
+    if(!bnh || !bnh->rules || !bnh->bdb) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    CHECK_ZERO(benesh_obj_nvars(obj, &nvar), err, err_out,
+               "could not access object.\n");
+    if(nvar && !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "variable map should not be empty.\n");
+    }
+    ASSIGN_NOT_NULL(benesh_obj_resolve(obj, var_map), resolved_obj, BNH_ESTATE,
+                    err_out, "resolution of object failed.\n");
+    ASSIGN_NOT_NULL(benesh_obj_to_tgt(bnh, resolved_obj), tgt, BNH_ENOENT,
+                    err_out, "could not find viable target to match object.\n");
+
+    return (tgt);
+err_out:
+    return (NULL);
+}
+
+int benesh_schedule_obj(struct benesh_handle *bnh, struct benesh_obj *obj)
+{
+    TRACE_OUT;
+    struct benesh_target *tgt;
+    int err, err2;
+
+    if(!bnh || !bnh->btm) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
     CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
                "could not lock task manager.\n");
-    CHECK_ZERO(benesh_taskman_schedule_rule(bnh, bnh->btm, rule, var_map), err,
-               err_out_lock, "could not schedule rule.\n");
+    ASSIGN_NOT_NULL(benesh_obj_to_tgt(bnh, obj), tgt, BNH_ENOENT, err_out_lock,
+                    "could not find matching target for object.\n");
+    CHECK_ZERO(benesh_taskman_schedule_target(bnh, tgt), err, err_out_lock,
+               "could not schedule rule.\n");
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
                "could not unlock task manager. Possible deadlock!\n");
 
@@ -259,6 +362,64 @@ err_out_lock:
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
                "could not unlock task manager. Possible deadlock!\n");
     err = err2;
+err_out:
+    return (err);
+}
+
+struct benesh_target *benesh_target_lookup(struct benesh_handle *bnh,
+                                           struct benesh_rule *rule,
+                                           int64_t *var_map)
+{
+    TRACE_OUT;
+    size_t nvar;
+    struct benesh_target *tgt;
+    int err;
+
+    if(!bnh || !bnh->bdb) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!rule) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad rule.\n");
+    }
+    CHECK_ZERO(benesh_rule_get_nvar(rule, &nvar), err, err_out,
+               "could not access rule.\n");
+    if(nvar && !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "empty variable map.\n");
+    }
+
+    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, var_map), tgt,
+                    BNH_ESTATE, err_out, "could not lookup target.\n");
+
+    return (tgt);
+err_out:
+    return (NULL);
+}
+
+int benesh_get_target_status(struct benesh_handle *bnh,
+                             struct benesh_rule *rule, int64_t *var_map,
+                             int *status)
+{
+    TRACE_OUT;
+    struct benesh_target *tgt;
+    int err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!rule) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad rule.\n");
+    }
+    if(!status) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, var_map), tgt,
+                    BNH_ENOENT, err_out,
+                    "could not locate target in database.\n");
+    CHECK_ZERO(benesh_target_get_status(tgt, status), err, err_out,
+               "could not access target.\n");
+
+    return (0);
 err_out:
     return (err);
 }

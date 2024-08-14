@@ -3,7 +3,11 @@
 
 struct benesh_obj;
 
+struct benesh_obj_db;
+
 char *benesh_obj_to_str(struct benesh_obj *obj);
+
+int benesh_obj_nvars(struct benesh_obj *obj, size_t *nvar);
 
 struct benesh_obj *benesh_obj_resolve(struct benesh_obj *obj, int64_t *var_map);
 
