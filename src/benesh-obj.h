@@ -7,6 +7,8 @@ struct benesh_obj_db;
 
 char *benesh_obj_to_str(struct benesh_obj *obj);
 
+struct benesh_obj *benesh_obj_from_str(const char *str);
+
 int benesh_obj_nvars(struct benesh_obj *obj, size_t *nvar);
 
 struct benesh_obj *benesh_obj_resolve(struct benesh_obj *obj, int64_t *var_map);
@@ -17,5 +19,7 @@ int bensh_obj_num_parts(struct benesh_obj *obj);
 
 int benesh_unify_obj_target(struct benesh_obj *obj, struct benesh_obj *target,
                             int64_t **var_map, int *is_viable);
+
+int benesh_obj_fully_resolved(struct benesh_obj *obj, int *is_resolved);
 
 #endif // _BENESH_OBJ_H

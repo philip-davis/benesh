@@ -37,6 +37,9 @@ int benesh_get_target_status(struct benesh_handle *bnh,
                              struct benesh_rule *rule, int64_t *var_map,
                              int *status);
 
+int benesh_obj_to_tpoint(struct benesh_handle *bnh, struct benesh_obj *obj,
+                         struct benesh_touchpoint **tpoint, int64_t **var_map);
+
 struct benesh_target *benesh_obj_resolve_to_tgt(struct benesh_handle *bnh,
                                                 struct benesh_obj *obj,
                                                 int64_t *var_map);

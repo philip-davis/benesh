@@ -269,17 +269,60 @@ err_out:
     return (err);
 }
 
+int benesh_obj_to_tpoint(struct benesh_handle *bnh, struct benesh_obj *obj,
+                         struct benesh_touchpoint **tpoint, int64_t **var_map)
+{
+    TRACE_OUT;
+    struct benesh_component *my_comp;
+    int is_resolved;
+    int err;
+
+    if(!bnh || !bnh->bco || !bnh->tpoints) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!tpoint || !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target pointer.\n");
+    }
+
+    *var_map = NULL;
+
+    CHECK_ZERO(benesh_obj_fully_resolved(obj, &is_resolved), BNH_EFAULT,
+               err_out, "could not check object.\n");
+    if(!is_resolved) {
+        ERR_OUT(BNH_EINVAL, err_out, "object not fully resolved.\n");
+    }
+    ASSIGN_NOT_NULL(benesh_my_comp(bnh), my_comp, BNH_EFAULT, err_out,
+                    "could not find my own component.\n");
+    CHECK_ZERO(
+        benesh_tp_find_viable(bnh->tpoints, my_comp, obj, tpoint, var_map),
+        BNH_ENOENT, err_out,
+        "could not find viable rule to match prerequesite target.\n");
+
+    return (0);
+err_out:
+    if(*tpoint)
+        *tpoint = NULL;
+    if(*var_map) {
+        free(*var_map);
+        *var_map = NULL;
+    }
+
+    return (err);
+}
+
 struct benesh_target *benesh_obj_to_tgt(struct benesh_handle *bnh,
                                         struct benesh_obj *obj)
 {
     TRACE_OUT;
     struct benesh_target *tgt;
     struct benesh_rule *rule;
-    int64_t *new_var_map;
+    int64_t *var_map = NULL;
+    int is_resolved;
     size_t nvar;
     int err;
-
-    new_var_map = NULL;
 
     if(!bnh || !bnh->rules || !bnh->bdb) {
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
@@ -287,18 +330,22 @@ struct benesh_target *benesh_obj_to_tgt(struct benesh_handle *bnh,
     if(!obj) {
         ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
     }
-    // Check if obj is fully resolved
-    CHECK_ZERO(benesh_find_viable_rule(bnh->rules, obj, &rule, &new_var_map),
+    CHECK_ZERO(benesh_obj_fully_resolved(obj, &is_resolved), BNH_EFAULT,
+               err_out, "could not check object.\n");
+    if(!is_resolved) {
+        ERR_OUT(BNH_EINVAL, err_out, "object not fully resolved.\n");
+    }
+    CHECK_ZERO(benesh_rule_find_viable(bnh->rules, obj, &rule, &var_map),
                BNH_ENOENT, err_out,
-               "could not find viable rule to match prerequesite target.\n");
-    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, new_var_map), tgt,
+               "could not find viable rule to match object.\n");
+    ASSIGN_NOT_NULL(benesh_tgt_db_lookup(bnh->bdb, rule, var_map), tgt,
                     BNH_ENOENT, err_out,
                     "could not locate target in database.\n");
-    free(new_var_map);
+    free(var_map);
     return (tgt);
 err_out:
-    if(new_var_map)
-        free(new_var_map);
+    if(var_map)
+        free(var_map);
     return (NULL);
 }
 

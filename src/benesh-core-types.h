@@ -17,7 +17,7 @@ struct benesh_handle {
     int rank;           // native
     int grank;          // native
     int comm_size;      // native
-    MPI_Comm mycomm;    // native
+    MPI_Comm my_comm;   // native
     MPI_Comm gcomm;     // native
     int root_rank;      // native
     int root_drank;     // native

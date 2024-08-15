@@ -279,7 +279,7 @@ err_out:
     return (NULL);
 }
 
-int benesh_find_viable_rule(benesh_rulebook rules, struct benesh_obj *target,
+int benesh_rule_find_viable(benesh_rulebook rules, struct benesh_obj *obj,
                             struct benesh_rule **rule, int64_t **var_map)
 {
     TRACE_OUT;
@@ -297,9 +297,8 @@ int benesh_find_viable_rule(benesh_rulebook rules, struct benesh_obj *target,
 
     BNH_PVEC_FOREACH(br, bi, rules)
     {
-        CHECK_ZERO(
-            benesh_unify_obj_target(br->target, target, var_map, &is_match),
-            err, err_out, "error during rule matching.\n");
+        CHECK_ZERO(benesh_unify_obj_target(br->target, obj, var_map, &is_match),
+                   err, err_out, "error during rule matching.\n");
         if(is_match) {
             *rule = br;
             break;

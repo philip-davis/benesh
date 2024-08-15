@@ -53,7 +53,7 @@ int benesh_rule_get_ndir(struct benesh_rule *rule, size_t *ndir);
 
 struct benesh_rule *benesh_rule_get_by_id(benesh_rulebook rules, int rule_id);
 
-int benesh_find_viable_rule(benesh_rulebook rules, struct benesh_obj *target,
+int benesh_rule_find_viable(benesh_rulebook rules, struct benesh_obj *target,
                             struct benesh_rule **rule, int64_t **var_map);
 
 struct benesh_target *benesh_tgt_db_lookup(struct benesh_target_db *bdb,

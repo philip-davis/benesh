@@ -60,7 +60,6 @@ struct tpoint_rule {
 struct tpoint_announce {
     uint32_t rule_id;
     int64_t *tp_vars;
-    uint32_t comp_id;
 };
 
 struct work_announce {

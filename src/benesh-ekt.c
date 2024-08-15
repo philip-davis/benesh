@@ -18,6 +18,13 @@
 extern "C" {
 #endif
 
+struct bnhekt_handle {
+    ekt_id ekth;
+    ekt_type tp_type;
+    ekt_type work_type;
+    ekt_type fini_type;
+};
+
 static int serialize_work(void *work_v, void *bnh_v, void **buf)
 {
     TRACE_OUT;
@@ -157,7 +164,7 @@ static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
     struct benesh_touchpoint *btp;
     size_t nmap;
     size_t buf_size;
-    int64_t *mappings;
+    int64_t *var_map;
     int i, err;
 
     if(!bnh) {
@@ -178,18 +185,15 @@ static int serialize_tpoint(void *tpoint_v, void *bnh_v, void **buf)
     CHECK_ZERO(benesh_tp_get_nvar(btp, &nmap), BNH_EFAULT, err_out,
                "target access failed.\n");
 
-    buf_size =
-        sizeof(tpoint->rule_id) + tpoint->comp_id + (nmap * sizeof(*mappings));
+    buf_size = sizeof(tpoint->rule_id) + (nmap * sizeof(*var_map));
     *buf = malloc(buf_size);
     ASSIGN_NOT_NULL(malloc(buf_size), *buf, BNH_ENOMEM, err_out,
                     "could not allocate buffer.\n");
 
     ((uint32_t *)(*buf))[0] = tpoint->rule_id;
-    ((uint32_t *)(*buf))[1] = tpoint->comp_id;
-    mappings = (int64_t *)((uint64_t)(*buf) + sizeof(tpoint->rule_id) +
-                           sizeof(tpoint->comp_id));
+    var_map = (int64_t *)((uint64_t)(*buf) + sizeof(tpoint->rule_id));
     if(nmap) {
-        memcpy(mappings, tpoint->tp_vars, nmap * sizeof(*tpoint->tp_vars));
+        memcpy(var_map, tpoint->tp_vars, nmap * sizeof(*tpoint->tp_vars));
     }
 
     return (buf_size);
@@ -223,15 +227,13 @@ static int deserialize_tpoint(void *buf, void *bnh_v, void **tpoint_v)
                     "could not allocate buffer.\n");
 
     tpoint->rule_id = ((uint32_t *)buf)[0];
-    tpoint->comp_id = ((uint32_t *)buf)[1];
     ASSIGN_NOT_NULL(benesh_get_tpoint_by_id(bnh, tpoint->rule_id), btp,
                     BNH_ESYNC, err_out,
                     "received work that does not match a rule.\n");
     CHECK_ZERO(benesh_tp_get_nvar(btp, &nmap), BNH_EFAULT, err_out,
                "target access failed.\n");
 
-    mappings = (int64_t *)((uint64_t)buf + sizeof(tpoint->rule_id) +
-                           sizeof(tpoint->comp_id));
+    mappings = (int64_t *)((uint64_t)buf + sizeof(tpoint->rule_id));
     tpoint->tp_vars = malloc(sizeof(*tpoint->tp_vars) * nmap);
     memcpy(tpoint->tp_vars, mappings, nmap * sizeof(*tpoint->tp_vars));
 
@@ -246,18 +248,10 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
 {
     TRACE_OUT;
     struct benesh_handle *bnh = (struct benesh_handle *)bnh_v;
-    struct tpoint_rule *rules;
     struct tpoint_announce *tpoint = (struct tpoint_announce *)tpoint_v;
-    struct benesh_component *comp, *tp_comp;
     struct benesh_touchpoint *btp;
-    struct pq_obj **fq_tgts;
-    struct xc_list_node *tgt_obj;
-    struct tpoint_rule *rule;
-    char *comp_name, *tp_comp_name;
     ;
     int i, err;
-
-    comp_name = tp_comp_name = NULL;
 
     if(!bnh) {
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
@@ -271,32 +265,11 @@ static int tpoint_watch(void *tpoint_v, void *bnh_v)
 
     ASSIGN_NOT_NULL(benesh_get_tpoint_by_id(bnh, tpoint->rule_id), btp,
                     BNH_ESYNC, err_out, "receive unknown touchpoint id.\n");
-    ASSIGN_NOT_NULL(benesh_get_comp_by_id(bnh, tpoint->comp_id), comp,
-                    BNH_ESYNC, err_out, "received unknown component id.\n");
-    ASSIGN_NOT_NULL(benesh_tp_get_comp(btp), tp_comp, BNH_ESTATE, err_out,
-                    "could not access touchpoint info.\n");
-    if(comp != tp_comp) {
-        ASSIGN_NOT_NULL(benesh_comp_name(comp), comp_name, BNH_ESTATE, err_out,
-                        "could not access component info.\n");
-        ASSIGN_NOT_NULL(benesh_comp_name(tp_comp), tp_comp_name, BNH_ESTATE,
-                        err_out, "could not access component info.\n");
-        WARN_OUT("Received touchpoint id %" PRIu32
-                 "from non-matching component %s. Expected %s.\n",
-                 tpoint->rule_id, comp_name, tp_comp_name);
-        free(comp_name);
-        free(tp_comp_name);
-        comp_name = tp_comp_name = NULL;
-    }
-
     CHECK_ZERO(benesh_tp_handle(bnh, btp, tpoint->tp_vars), err, err_out,
                "failed handling checkpoint.\n");
 
     return (0);
 err_out:
-    if(comp_name)
-        free(comp_name);
-    if(tp_comp_name)
-        free(tp_comp_name);
     return (err);
 }
 
@@ -451,7 +424,6 @@ int benesh_ekt_xconnect(struct bnhekt_handle *bekth, struct benesh_cohort *bco,
     if(!bekth) {
         ERR_OUT(BNH_EFAULT, err_out, "bad handle.\n");
     }
-
     if(!bco) {
         ERR_OUT(BNH_EFAULT, err_out, "bad cohort.\n");
     }
@@ -493,3 +465,38 @@ err_out:
 #if defined(__cplusplus)
 }
 #endif
+
+int benesh_ekt_announce_tp(struct bnhekt_handle *bekth,
+                           struct benesh_touchpoint *tpoint, int64_t *var_map)
+{
+    TRACE_OUT;
+    struct tpoint_announce announce;
+    size_t nvar;
+    int tp_id;
+    int err;
+
+    if(!bekth) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh ekt handle.\n");
+    }
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad touchpoint.\n");
+    }
+
+    CHECK_ZERO(benesh_tp_get_nvar(tpoint, &nvar), BNH_EFAULT, err_out,
+               "cannot access touchpoint.\n");
+    if(nvar && !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "empty variable map.\n");
+    }
+
+    CHECK_ZERO(benesh_tp_get_id(tpoint, &tp_id), err, err_out,
+               "could not acces touchpoint.\n");
+    announce.rule_id = tp_id;
+    announce.tp_vars = var_map;
+
+    CHECK_ZERO(ekt_tell(bekth->ekth, NULL, bekth->tp_type, &announce), BNH_EEKT,
+               err_out, "ekt_tell failed with %i\n", err);
+
+    return (0);
+err_out:
+    return (err);
+}

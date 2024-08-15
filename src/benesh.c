@@ -4,6 +4,7 @@
 #include "benesh-cohort.h"
 #include "benesh-config.h"
 #include "benesh-core-types.h"
+#include "benesh-dummy.h"
 #include "benesh-ekt.h"
 #include "benesh-logging.h"
 #include "benesh-tasks.h"
@@ -1688,10 +1689,10 @@ dummy)
 {
     MPI_Comm_dup(gcomm, &bnh->gcomm);
     MPI_Comm_rank(gcomm, &bnh->grank);
-    MPI_Comm_split(gcomm, dummy, bnh->grank, &bnh->mycomm);
+    MPI_Comm_split(gcomm, dummy, bnh->grank, &bnh->my_comm);
     DEBUG_OUT("did split\n");
-    MPI_Comm_rank(bnh->mycomm, &bnh->rank);
-    MPI_Comm_size(bnh->mycomm, &bnh->comm_size);
+    MPI_Comm_rank(bnh->my_comm, &bnh->rank);
+    MPI_Comm_size(bnh->my_comm, &bnh->comm_size);
     DEBUG_OUT("I have global rank %i and subgroup rank %i\n", bnh->grank,
 bnh->rank); bnh->root_rank = bnh->root_drank = -1; if(bnh->rank == 0) {
         if(dummy) {
@@ -1753,10 +1754,10 @@ static int benesh_split_off_dummies(struct benesh_handle *bnh, MPI_Comm gcomm)
     TRACE_OUT;
     int err;
 
-    CHECK_ZERO(MPI_Comm_split(gcomm, bnh->f_dummy, bnh->grank, &bnh->mycomm),
+    CHECK_ZERO(MPI_Comm_split(gcomm, bnh->f_dummy, bnh->grank, &bnh->my_comm),
                BNH_EINVAL, err_out, "invalid communicator\n");
     DEBUG_OUT("did split\n");
-    CHECK_ZERO(MPI_Comm_rank(bnh->mycomm, &bnh->rank), BNH_EINVAL, err_out,
+    CHECK_ZERO(MPI_Comm_rank(bnh->my_comm, &bnh->rank), BNH_EINVAL, err_out,
                "invalid communicator\n");
     bnh->root_rank = (!bnh->f_dummy && !bnh->rank) ? bnh->grank : -1;
     bnh->root_drank = (bnh->f_dummy && !bnh->rank) ? bnh->grank : -1;
@@ -1791,8 +1792,8 @@ static int benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm)
         goto err_out;
     }
 
-    CHECK_ZERO(MPI_Comm_size(bnh->mycomm, &bnh->comm_size), BNH_EINVAL, err_out,
-               "invalid communicator\n");
+    CHECK_ZERO(MPI_Comm_size(bnh->my_comm, &bnh->comm_size), BNH_EINVAL,
+               err_out, "invalid communicator\n");
 
     return (0);
 
@@ -1852,7 +1853,7 @@ static int benesh_wireup_preconfig(struct benesh_handle *bnh, MPI_Comm gcomm)
     CHECK_ZERO(benesh_init_margo(bnh), err, err_out,
                "margo initialization failed.\n");
     if(!bnh->f_dummy) {
-        bnh->bekth = benesh_ekt_init(bnh->name, bnh->mycomm, bnh->mid, bnh);
+        bnh->bekth = benesh_ekt_init(bnh->name, bnh->my_comm, bnh->mid, bnh);
         if(!bnh->bekth) {
             ERR_OUT(BNH_EEKT, err_out, "EKT initialization failed.\n");
         }
@@ -1884,8 +1885,9 @@ static int benesh_wireup_postconfig(struct benesh_handle *bnh, int wait)
     int i, err;
 
     if(!bnh->f_dummy) {
-        CHECK_ZERO(benesh_ekt_xconnect(bnh->bekth, bnh->bco, bnh->mycomm, wait),
-                   BNH_EEKT, err_out, "componenent cross-connnect failed.\n");
+        CHECK_ZERO(
+            benesh_ekt_xconnect(bnh->bekth, bnh->bco, bnh->my_comm, wait),
+            BNH_EEKT, err_out, "componenent cross-connnect failed.\n");
     }
 
 err_out:
@@ -2014,12 +2016,12 @@ int wait, struct benesh_handle **handle)
 
     APEX_NAME_TIMER_START(2, "dspaces init");
     DEBUG_OUT("initializing dataspaces...\n");
-    //dspaces_init_mpi(bnh->mycomm, &bnh->dsp);
+    //dspaces_init_mpi(bnh->my_comm, &bnh->dsp);
     APEX_TIMER_STOP(2);
     APEX_NAME_TIMER_START(3, "ekt init");
     if(!bnh->f_dummy) {
         DEBUG_OUT("initializing EKT...\n");
-        ekt_init(&bnh->ekth, name, bnh->mycomm, bnh->mid);
+        ekt_init(&bnh->ekth, name, bnh->my_comm, bnh->mid);
         ekt_register(bnh->ekth, BENESH_EKT_WORK, serialize_work,
 deserialize_work, bnh, &bnh->work_type); ekt_watch(bnh->ekth, bnh->work_type,
 work_watch);
@@ -3133,7 +3135,7 @@ static int signal_status(struct benesh_handle *bnh, int leaving)
 {
     static int sigid = 0;
     DEBUG_OUT("signal %i status is %i\n", sigid++, leaving);
-    MPI_Allreduce(MPI_IN_PLACE, &leaving, 1, MPI_INT, MPI_MIN, bnh->mycomm);
+    MPI_Allreduce(MPI_IN_PLACE, &leaving, 1, MPI_INT, MPI_MIN, bnh->my_comm);
     return(leaving);
 }
 */
@@ -3146,7 +3148,7 @@ static void signal_minmax(struct benesh_handle *bnh, unsigned int signal,
     int recvbuf[2];
 
     DEBUG_OUT("signal %i status is %i\n", sigid++, signal);
-    MPI_Allreduce(sendbuf, recvbuf, 2, MPI_INT, MPI_MIN, bnh->mycomm);
+    MPI_Allreduce(sendbuf, recvbuf, 2, MPI_INT, MPI_MIN, bnh->my_comm);
     if(min) {
         *min = recvbuf[0];
     }
@@ -3401,7 +3403,7 @@ static void take_nondummy_orders(struct benesh_handle *bnh)
                      MPI_STATUS_IGNORE);
             DEBUG_OUT("received new command (%i)\n", cmd[0]);
         }
-        MPI_Bcast(cmd, 3, MPI_INT, 0, bnh->mycomm);
+        MPI_Bcast(cmd, 3, MPI_INT, 0, bnh->my_comm);
         DEBUG_OUT("doing command (%i, %i, %i)\n", cmd[0], cmd[1], cmd[2]);
         if(cmd[0] == BNH_FIELD_SEND) {
             do_ordered_send(bnh, cmd[1], cmd[2]);
@@ -3412,6 +3414,43 @@ static void take_nondummy_orders(struct benesh_handle *bnh)
     DEBUG_OUT("got term command\n");
 }
 
+int benesh_tpoint(struct benesh_handle *bnh, const char *tpoint_str)
+{
+    TRACE_OUT;
+    struct benesh_obj *tpoint_obj;
+    struct benesh_touchpoint *tpoint;
+    int64_t *var_map = NULL;
+    int err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad benesh handle.\n")
+    }
+    if(!tpoint_str || !*tpoint_str) {
+        ERR_OUT(BNH_EINVAL, err_out, "name cannot be empty.");
+    }
+
+    ASSIGN_NOT_NULL(benesh_obj_from_str(tpoint_str), tpoint_obj, BNH_EFAULT,
+                    err_out, "could not parse touchpoint string.\n");
+    if(bnh->f_dummy) {
+    }
+    CHECK_ZERO(benesh_obj_to_tpoint(bnh, tpoint_obj, &tpoint, &var_map),
+               BNH_ENOENT, err_out, "no touchpoint rules match '%s'.\n",
+               tpoint_str);
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad touchpoint.\n");
+    }
+    CHECK_ZERO(benesh_ekt_announce_tp(bnh->bekth, tpoint, var_map), err,
+               err_out, "could not announce touchpoint.\n");
+
+    free(var_map);
+    return (0);
+err_out:
+    if(var_map)
+        free(var_map);
+    return (err);
+}
+
+/*
 void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 {
     struct tpoint_handle *tph = bnh->tph;
@@ -3480,6 +3519,7 @@ void benesh_tpoint(struct benesh_handle *bnh, const char *tpname)
 
     APEX_TIMER_STOP(0);
 }
+*/
 
 /*
 static void report_cpl_timings(struct benesh_handle *bnh, struct wf_domain
@@ -3769,7 +3809,7 @@ int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name)
 
         if(dom->comm_type == BNH_COMM_RDV_CLI) {
             dom->cph = create_cpl_hndl(bnh->name, NULL, NULL, 0, bnh->f_dummy ?
-       MPI_COMM_NULL : bnh->mycomm); comp->cpl_apph = add_application(dom->cph,
+       MPI_COMM_NULL : bnh->my_comm); comp->cpl_apph = add_application(dom->cph,
        "server", ""); } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
             fprintf(stderr, "ERROR: raw field domain binding not supported on
        servers yet.\n"); return(-1); } else { fprintf(stderr, "ERROR: raw field
@@ -4046,7 +4086,7 @@ int allocate_rdvs(struct benesh_handle *bnh, struct wf_domain *dom,
                       dom_list[i].full_name);
             // dom_list[i].rdv = malloc(sizeof(*dom_list[i].rdv));
             // dom_list[i].rdv = new_rdv_comm_ptn(
-            //     &bnh->mycomm, dom_list[i].full_name, 1, dom->rptn);
+            //     &bnh->my_comm, dom_list[i].full_name, 1, dom->rptn);
             pos++;
             count++;
         }
@@ -4150,19 +4190,17 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
     //TODO wfname
     if(dom->comm_type == BNH_COMM_RDV_CLI) {
         dom->cph = create_cpl_hndl(bnh->name, dom->mesh, dom->rptn, 0,
-    bnh->mycomm); comp = &bnh->comps[bnh->comp_id]; comp->cpl_apph =
+    bnh->my_comm); comp = &bnh->comps[bnh->comp_id]; comp->cpl_apph =
     add_application(dom->cph, "server", "");
         //TODO class ranges (here and below)
         mark_cpl_overlap(dom->cph, comp->cpl_apph, dom->mesh, dom->rptn, 0, 0);
     } else if(dom->comm_type == BNH_COMM_RDV_SRV) {
         dom->cph = create_cpl_hndl("xgc_n0_coupling", dom->mesh, dom->rptn, 1,
-    bnh->mycomm); for(i = 0; i < bnh->comp_count; i++) { if(i != bnh->comp_id) {
-                comp = &bnh->comps[i];
-                path = malloc(strlen(comp->app) + 2);
-                sprintf(path, "%s/", comp->app);
-                comp->cpl_apph = add_application(dom->cph, comp->app, path);
-                mark_cpl_overlap(dom->cph, comp->cpl_apph, dom->mesh, dom->rptn,
-    0, 0); free(path);
+    bnh->my_comm); for(i = 0; i < bnh->comp_count; i++) { if(i != bnh->comp_id)
+    { comp = &bnh->comps[i]; path = malloc(strlen(comp->app) + 2); sprintf(path,
+    "%s/", comp->app); comp->cpl_apph = add_application(dom->cph, comp->app,
+    path); mark_cpl_overlap(dom->cph, comp->cpl_apph, dom->mesh, dom->rptn, 0,
+    0); free(path);
             }
         }
     } else {

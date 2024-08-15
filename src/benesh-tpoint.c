@@ -7,10 +7,12 @@
 #include "util.h"
 
 struct benesh_touchpoint {
+    int id; // for announcements
     struct benesh_component *comp;
     struct bnh_pvec *vars;
     struct bnh_pvec *tgts;
     struct benesh_obj *obj;
+    int nvar;
 };
 
 struct benesh_touchpoint *benesh_tp_get_by_id(benesh_tpoints tpoints, int tp_id)
@@ -41,6 +43,26 @@ int benesh_tp_get_nvar(struct benesh_touchpoint *tpoint, size_t *nvar)
     return (0);
 err_out:
     *nvar = 0;
+    return (err);
+}
+
+int benesh_tp_get_id(struct benesh_touchpoint *tpoint, int *tp_id)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad touchpoint.\n");
+    }
+    if(!tp_id) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    *tp_id = tpoint->id;
+
+    return (0);
+err_out:
+    *tp_id = -1;
     return (err);
 }
 
@@ -139,5 +161,47 @@ err_out_free:
 err_out:
     if(tp_str)
         free(tp_str);
+    return (err);
+}
+
+int benesh_tp_find_viable(struct bnh_pvec *tpoint_rules,
+                          struct benesh_component *comp, struct benesh_obj *obj,
+                          struct benesh_touchpoint **tpoint, int64_t **var_map)
+{
+    TRACE_OUT;
+    struct benesh_touchpoint *btp;
+    bnh_pvec_iter bi;
+    int is_match;
+    int err;
+
+    if(!tpoint_rules) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad touchpoint ruleset.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad obj.\n");
+    }
+    if(!tpoint || !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output target.\n");
+    }
+
+    *var_map = NULL;
+    *tpoint = NULL;
+    BNH_PVEC_FOREACH(btp, bi, tpoint_rules)
+    {
+        is_match = 0;
+        CHECK_ZERO(benesh_unify_obj_target(btp->obj, obj, var_map, &is_match),
+                   err, err_out, "error during touchpoint matching.\n");
+        if(is_match && comp == btp->comp) {
+            *tpoint = btp;
+            break;
+        }
+    }
+
+    return (0);
+err_out:
+    if(tpoint)
+        *tpoint = NULL;
+    if(var_map)
+        *var_map = NULL;
     return (err);
 }

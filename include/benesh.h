@@ -24,6 +24,8 @@ extern "C" {
 #define BNH_ENOMEM ENOMEM
 /* workflow element not found */
 #define BNH_ENOENT ENOENT
+/* functionality not yet implemented */
+#define BNH_ENOSYS ENOSYS
 
 /* inconsistent state between ranks */
 #define BNH_EINCONST -1
@@ -71,7 +73,7 @@ int benesh_bind_mesh_domain(struct benesh_handle *bnh, const char *dom_name,
 
 int benesh_bind_field_domain(struct benesh_handle *bnh, const char *dom_name);
 
-void benesh_tpoint(struct benesh_handle *bnh, const char *tpname);
+int benesh_tpoint(struct benesh_handle *bnh, const char *tpoint_str);
 
 void benesh_touchpoint(benesh_app_id bnh, const char *tpname);
 

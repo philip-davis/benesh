@@ -873,3 +873,212 @@ err_out:
         free(is_var_map_set);
     return (err);
 }
+
+static int benesh_obj_add_var_from_str(struct benesh_obj *obj, const char *str)
+{
+    TRACE_OUT;
+    struct benesh_obj_part *part = NULL;
+    char *var_name = NULL;
+    bnh_pvec_iter bi;
+    int var_name_len;
+    int vid;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!str || !*str) {
+        ERR_OUT(BNH_EFAULT, err_out, "null string.\n");
+    }
+
+    // "%{var_name}"
+    var_name_len = strlen(str) - 3;
+    if(var_name_len < 1) {
+        ERR_OUT(BNH_EFAULT, err_out, "variable name not found.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*part)), part, BNH_ENOMEM, err_out,
+                    "memory allocation failure.\n");
+    part->type = BNH_OBJ_VAR;
+    part->var = -1;
+    BNH_PVEC_FOREACH_ID(var_name, vid, bi, obj->vars)
+    {
+        if(strncmp(&str[2], var_name, var_name_len) == 0) {
+            part->var = vid;
+            break;
+        }
+    }
+    if(part->var == -1) {
+        vid = bnh_pvec_get_len(obj->vars);
+        ASSIGN_NOT_NULL(malloc(var_name_len + 1), var_name, BNH_ENOMEM, err_out,
+                        "memory allocation failure.\n");
+        strncpy(var_name, &str[2], var_name_len);
+        var_name[var_name_len - 1] = '\0';
+        bnh_pvec_append(obj->vars, var_name, vid);
+        part->var = vid;
+    }
+
+    bnh_pvec_append(obj->parts, part, -1);
+
+    return (0);
+err_out:
+    if(part)
+        free(part);
+    return (err);
+}
+
+static int benesh_obj_add_val_from_str(struct benesh_obj *obj, const char *str)
+{
+    TRACE_OUT;
+    struct benesh_obj_part *part = NULL;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!str || !*str) {
+        ERR_OUT(BNH_EFAULT, err_out, "null string.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*part)), part, BNH_ENOMEM, err_out,
+                    "memory allocation failure.\n");
+    part->type = BNH_OBJ_VAL;
+    part->val = atol(str);
+
+    bnh_pvec_append(obj->parts, part, -1);
+
+    return (0);
+err_out:
+    if(part)
+        free(part);
+    return (err);
+}
+
+static int benesh_obj_add_id_from_str(struct benesh_obj *obj, const char *str)
+{
+    TRACE_OUT;
+    struct benesh_obj_part *part = NULL;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!str || !*str) {
+        ERR_OUT(BNH_EFAULT, err_out, "null string.\n");
+    }
+
+    ASSIGN_NOT_NULL(malloc(sizeof(*part)), part, BNH_ENOMEM, err_out,
+                    "memory allocation failure.\n");
+    part->type = BNH_OBJ_ID;
+    part->str = strdup(str);
+
+    bnh_pvec_append(obj->parts, part, -1);
+
+    return (0);
+err_out:
+    if(part)
+        free(part);
+    return (err);
+}
+
+static int benesh_obj_add_part_from_str(struct benesh_obj *obj, const char *str)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!str || !*str) {
+        ERR_OUT(BNH_EFAULT, err_out, "null or empty string.\n");
+    }
+
+    if(str[0] == '%') {
+        if(str[1] == '{') {
+            // "%{var}"
+            CHECK_ZERO(benesh_obj_add_var_from_str(obj, str), err, err_out,
+                       "could not add variable object part.\n");
+        } else {
+            // "%[[expr]]"
+            /*
+                TODO: there isn't really a use case for this yet, it should be
+               supported. Should probably leverage the configuration parser,
+               which does this already.
+            */
+            ERR_OUT(BNH_EINVAL, err_out,
+                    "parsing expressions in arguments not supported.\n");
+        }
+    } else {
+        if(str[0] >= '0' && str[0] <= '9') {
+            CHECK_ZERO(benesh_obj_add_val_from_str(obj, str), err, err_out,
+                       "could not add numeric object part.\n");
+        } else {
+            CHECK_ZERO(benesh_obj_add_id_from_str(obj, str), err, err_out,
+                       "could not add idenftifier object part.\n");
+        }
+    }
+
+    return (0);
+err_out:
+    return (err);
+}
+
+struct benesh_obj *benesh_obj_from_str(const char *str)
+{
+    TRACE_OUT;
+    struct benesh_obj *obj = NULL;
+    char *str_copy = NULL;
+    char *part_str;
+    char **saveptr;
+    int err;
+
+    if(!str || !*str) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad string.\n");
+    }
+
+    str_copy = strdup(str);
+
+    ASSIGN_NOT_NULL(benesh_obj_new(0, 0), obj, BNH_ENOMEM, err_out,
+                    "could not create new object.\n");
+
+    part_str = strtok_r(str_copy, ".", saveptr);
+    while(part_str) {
+        CHECK_ZERO(benesh_obj_add_part_from_str(obj, part_str), err, err_out,
+                   "could not parse string to object part.\n");
+        part_str = strtok_r(str_copy, ".", saveptr);
+    }
+    free(str_copy);
+
+    return (obj);
+err_out:
+    if(str_copy)
+        free(str_copy);
+    if(obj)
+        benesh_obj_free(obj);
+    return (NULL);
+}
+
+int benesh_obj_fully_resolved(struct benesh_obj *obj, int *is_resolved)
+{
+    TRACE_OUT;
+    struct benesh_obj_part *part;
+    bnh_pvec_iter bi;
+    int err;
+
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+
+    BNH_PVEC_FOREACH(part, bi, obj->parts)
+    {
+        if(part->type == BNH_OBJ_VAR || part->type == BNH_OBJ_EXPR) {
+            *is_resolved = 0;
+            return (0);
+        }
+    }
+
+    *is_resolved = 1;
+    return (0);
+err_out:
+    return (err);
+}
