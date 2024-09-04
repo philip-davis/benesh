@@ -28,4 +28,8 @@ int benesh_tp_find_viable(struct bnh_pvec *tpoint_rules,
                           struct benesh_component *comp, struct benesh_obj *obj,
                           struct benesh_touchpoint **tpoint, int64_t **var_map);
 
+int benesh_tp_is_complete(struct benesh_handle *bnh,
+                          struct benesh_touchpoint *tpoint, int64_t *var_map,
+                          int *eout);
+
 #endif // _BENESH_TPOINT_H

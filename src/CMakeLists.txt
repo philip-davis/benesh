@@ -12,7 +12,7 @@ set (benesh-pkg "share/cmake/benesh")
 add_library(benesh 
             benesh.c
             beneshp.c
-            benesh-dummy.c
+            benesh-comm.c
             benesh-ekt.c
             benesh-logging.c
             benesh-config.c

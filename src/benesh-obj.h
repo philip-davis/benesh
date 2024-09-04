@@ -1,6 +1,8 @@
 #ifndef _BENESH_OBJ_H
 #define _BENESH_OBJ_H
 
+#include <stdlib.h>
+
 struct benesh_obj;
 
 struct benesh_obj_db;

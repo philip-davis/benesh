@@ -470,3 +470,105 @@ int benesh_get_target_status(struct benesh_handle *bnh,
 err_out:
     return (err);
 }
+
+int benesh_get_obj_status(struct benesh_handle *bnh, struct benesh_obj *obj,
+                          int *status)
+{
+    TRACE_OUT;
+    struct benesh_target *tgt;
+    int64_t *var_map = NULL;
+    int is_resolved;
+    int err, err2;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object.\n");
+    }
+    if(!status) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    CHECK_ZERO(benesh_obj_fully_resolved(obj, &is_resolved), BNH_EFAULT,
+               err_out, "could not check object.\n");
+    if(!is_resolved) {
+        ERR_OUT(BNH_EINVAL, err_out, "object not fully resolved.\n");
+    }
+    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
+               "could not lock task manager.\n");
+    ASSIGN_NOT_NULL(benesh_obj_to_tgt(bnh, obj), tgt, BNH_ENOENT, err_out_lock,
+                    "could not find matching target for object.\n");
+    CHECK_ZERO(benesh_target_get_status(tgt, status), err, err_out_lock,
+               "could not access target.\n");
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
+    return (0);
+err_out_lock:
+    // keep err from being reset on successful unlock
+    err2 = err;
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager. Possible deadlock!\n");
+    err = err2;
+err_out:
+    return (err);
+}
+
+static int benesh_queue_run_next(struct benesh_handle *bnh)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+
+    // dequeue a work item
+
+    // handle the work item
+
+    return (0);
+err_out:
+    return (err);
+}
+
+int benesh_queue_run(struct benesh_handle *bnh)
+{
+    TRACE_OUT;
+    int queue_empty, connected;
+    int err, err2;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+
+    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
+               "could not lock task manager.\n");
+    connected = benesh_comp_any(bnh->bco, &err);
+    CHECK_ZERO(err, err, err_out_lock,
+               "cannot access component connection information.\n");
+    queue_empty = benesh_taskman_queue_empty(bnh->btm, &err);
+    CHECK_ZERO(err, err, err_out_lock, "failure accessing task manager.\n");
+    if(queue_empty && connected) {
+        CHECK_ZERO(benesh_taskman_wait(bnh->btm), err, err_out_lock,
+                   "failed while waiting for new work.\n");
+    }
+
+    while(!benesh_taskman_queue_empty(bnh->btm, &err)) {
+        CHECK_ZERO(benesh_queue_run_next(bnh), err, err_out,
+                   "failed to handle nexst work item.\n");
+    }
+    CHECK_ZERO(err, err, err_out_lock, "failure accessing task manager.\n");
+
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
+               "could not unlock task manager.\n");
+
+    return (0);
+err_out_lock:
+    err2 = err;
+    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out_lock,
+               "could not unlock task manager. Possible deadlock\n");
+    err = err2;
+err_out:
+    return (err);
+}

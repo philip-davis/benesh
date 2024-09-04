@@ -411,3 +411,26 @@ int benesh_taskman_schedule_target(struct benesh_handle *bnh,
 err_out:
     return (err);
 }
+
+int benesh_taskman_queue_empty(struct benesh_taskman *btm, int *eout)
+{
+    TRACE_OUT;
+    int err;
+    *eout = 0;
+
+    if(!btm) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad taskman handle.\n");
+    }
+    if(!eout) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    if(btm->queue_head) {
+        return (0);
+    }
+
+    return (1);
+err_out:
+    *eout = err;
+    return (1);
+}

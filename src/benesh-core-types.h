@@ -2,6 +2,7 @@
 #define _BENESH_CORE_TYPES_H
 
 #include "benesh-cohort.h"
+#include "benesh-comm.h"
 #include "benesh-ekt.h"
 #include "benesh-targets.h"
 #include "benesh-tasks.h"
@@ -14,6 +15,7 @@
 #include <stdatomic.h>
 
 struct benesh_handle {
+    /*
     int rank;           // native
     int grank;          // native
     int comm_size;      // native
@@ -21,6 +23,8 @@ struct benesh_handle {
     MPI_Comm gcomm;     // native
     int root_rank;      // native
     int root_drank;     // native
+    */
+    struct benesh_comm *bcomm;
     char *name;         // native
     atomic_int f_ready; // native;
     int f_dummy;        // native

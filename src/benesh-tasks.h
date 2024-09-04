@@ -44,4 +44,6 @@ int benesh_enqueue_import(struct benesh_taskman *btm, struct benesh_target *tgt,
 int benesh_taskman_schedule_target(struct benesh_handle *bnh,
                                    struct benesh_target *tgt);
 
+int benesh_taskman_queue_empty(struct benesh_taskman *btm, int *eout);
+
 #endif // _BENESH_TASKS_H

@@ -25,4 +25,6 @@ int benesh_ekt_xconnect(struct bnhekt_handle *bekth, struct benesh_cohort *bco,
 int benesh_ekt_announce_tp(struct bnhekt_handle *bekth,
                            struct benesh_touchpoint *tpoint, int64_t *var_map);
 
+int benesh_ekt_fini(struct bnhekt_handle *bekth);
+
 #endif // _BENESH_EKT_H

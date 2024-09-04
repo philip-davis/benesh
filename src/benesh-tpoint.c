@@ -164,6 +164,56 @@ err_out:
     return (err);
 }
 
+int benesh_tp_is_complete(struct benesh_handle *bnh,
+                          struct benesh_touchpoint *tpoint, int64_t *var_map,
+                          int *eout)
+{
+    TRACE_OUT;
+    size_t nvar;
+    struct benesh_obj *tgt, *resolved_obj;
+    bnh_pvec_iter bi;
+    int status;
+    int err;
+
+    *eout = 0;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!tpoint) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad touchpoint.\n");
+    }
+
+    if(!eout) {
+        ERR_OUT(BNH_EFAULT, err_out, "missing output variable\n.");
+    }
+
+    CHECK_ZERO(benesh_tp_get_nvar(tpoint, &nvar), err, err_out,
+               "could not access touchpoint.\n");
+    if(nvar && !var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "missing variable map.\n");
+    }
+
+    BNH_PVEC_FOREACH(tgt, bi, tpoint->tgts)
+    {
+        resolved_obj = NULL;
+        ASSIGN_NOT_NULL(benesh_obj_resolve(tgt, var_map), resolved_obj,
+                        BNH_ESTATE, err_out, "could not resolve target.\n");
+        CHECK_ZERO(benesh_get_obj_status(bnh, resolved_obj, &status), err,
+                   err_out, "could not retrieve object status.\n");
+        CHECK_ZERO(benesh_obj_free(resolved_obj), err, err_out,
+                   "failed to free resolved target.\n");
+        if(status != BNH_STAT_REAL) {
+            return (0);
+        }
+    }
+
+    return (1);
+err_out:
+    *eout = err;
+    return (0);
+}
+
 int benesh_tp_find_viable(struct bnh_pvec *tpoint_rules,
                           struct benesh_component *comp, struct benesh_obj *obj,
                           struct benesh_touchpoint **tpoint, int64_t **var_map)

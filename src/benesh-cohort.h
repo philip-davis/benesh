@@ -24,4 +24,6 @@ char *benesh_comp_name(struct benesh_component *comp);
 
 int benesh_comp_id(struct benesh_component *comp, int *id);
 
+int benesh_comp_any(struct benesh_cohort *bco, int *eout);
+
 #endif //_BENESH_COHORT_H

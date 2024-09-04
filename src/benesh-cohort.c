@@ -69,7 +69,7 @@ int benesh_connected_count(struct benesh_cohort *bco, int *count)
             (*count)++;
     }
     CHECK_ZERO(ABT_mutex_unlock(bco->mtx), BNH_EABT, err_out,
-               "failed to lock cohort.\n");
+               "failed to unlock cohort. Possible deadlock.\n");
 
     return (0);
 err_out:
@@ -162,4 +162,31 @@ int benesh_comp_id(struct benesh_component *comp, int *id)
 err_out:
     *id = -1;
     return (err);
+}
+
+int benesh_comp_any(struct benesh_cohort *bco, int *eout)
+{
+    TRACE_OUT;
+    int count;
+    int err;
+
+    *eout = 0;
+
+    if(!bco) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh cohort.\n");
+    }
+    if(!eout) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    CHECK_ZERO(benesh_connected_count(bco, &count), err, err_out,
+               "could not access cohort.\n");
+
+    if(count) {
+        return (1);
+    }
+    return (0);
+err_out:
+    *eout = err;
+    return (0);
 }

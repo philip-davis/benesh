@@ -2,9 +2,9 @@
 
 #include "benesh.h"
 #include "benesh-cohort.h"
+#include "benesh-comm.h"
 #include "benesh-config.h"
 #include "benesh-core-types.h"
-#include "benesh-dummy.h"
 #include "benesh-ekt.h"
 #include "benesh-logging.h"
 #include "benesh-tasks.h"
@@ -858,12 +858,16 @@ static int match_rule(struct tpoint_rule *rule, char **tk_tpoint, int tkcnt,
 
 static void benesh_load_config(struct benesh_handle *bnh, const char *conf)
 {
+    assert(0 && "not implemented");
+
+    /*
     if(bnh->rank == 0) {
         DEBUG_OUT("reading workflow configuration from %s...\n", conf);
     }
     APEX_FUNC_TIMER_START(benesh_load_config);
     bnh->conf = xc_fparse(conf, bnh->gcomm);
     APEX_TIMER_STOP(0);
+    */
 }
 
 // Deserialize tpoint nodes from conf
@@ -976,122 +980,120 @@ static void benesh_init_comps(struct benesh_handle *bnh)
     int found;
     int i, j;
 
-    compnodes = xc_get_all(conf->subconf, XC_NODE_COMP, &comp_count);
-    DEBUG_OUT("%i components in workflow\n", comp_count);
-    bnh->comp_count = comp_count;
-    bnh->comps = calloc(sizeof(*(bnh->comps)), comp_count);
-    for(i = 0, bnh->ifvar_count = 0; i < comp_count; i++) {
-        comp = compnodes[i]->decl;
-        iface = comp->iface;
-        varnodes = xc_get_all(iface->decl, XC_NODE_VAR, &var_count);
-        bnh->ifvar_count += var_count;
-        free(varnodes);
-    }
-    bnh->ifvars = calloc(bnh->ifvar_count, sizeof(*bnh->ifvars));
-    for(i = 0, if_var = bnh->ifvars; i < comp_count; i++) {
-        comp = compnodes[i]->decl;
-        bnh->comps[i].app = comp->app;
-        bnh->comps[i].name = comp->name;
-        iface = comp->iface;
-        varnodes = xc_get_all(iface->decl, XC_NODE_VAR, &var_count);
-        for(j = 0; j < var_count; j++) {
-            var = varnodes[j]->decl;
-            if_var[j].name = var->name;
-            if_var[j].versions = xc_new_ihash_map(32, 1);
-            if_var[j].comp_id = i;
-            if(i == bnh->comp_id) {
+    assert(0 && "not implemented");
+    /*
+        compnodes = xc_get_all(conf->subconf, XC_NODE_COMP, &comp_count);
+        DEBUG_OUT("%i components in workflow\n", comp_count);
+        bnh->comp_count = comp_count;
+        bnh->comps = calloc(sizeof(*(bnh->comps)), comp_count);
+        for(i = 0, bnh->ifvar_count = 0; i < comp_count; i++) {
+            comp = compnodes[i]->decl;
+            iface = comp->iface;
+            varnodes = xc_get_all(iface->decl, XC_NODE_VAR, &var_count);
+            bnh->ifvar_count += var_count;
+            free(varnodes);
+        }
+        bnh->ifvars = calloc(bnh->ifvar_count, sizeof(*bnh->ifvars));
+        for(i = 0, if_var = bnh->ifvars; i < comp_count; i++) {
+            comp = compnodes[i]->decl;
+            bnh->comps[i].app = comp->app;
+            bnh->comps[i].name = comp->name;
+            iface = comp->iface;
+            varnodes = xc_get_all(iface->decl, XC_NODE_VAR, &var_count);
+            for(j = 0; j < var_count; j++) {
+                var = varnodes[j]->decl;
+                if_var[j].name = var->name;
                 if_var[j].versions = xc_new_ihash_map(32, 1);
-            }
-            if_var[j].comm_type = BNH_COMM_DSP;
-        }
-        free(varnodes);
-        if_var += var_count;
-        DEBUG_OUT("We are %s\n", bnh->name);
-        if(strcmp(comp->app, bnh->name) != 0) {
-            if(!bnh->f_dummy) {
-                DEBUG_OUT("connecting to component %i (%s)\n", i, comp->app);
-                assert(0 && "not implemented");
-                // ekt_connect(bnh->ekth, comp->app);
-                if(strcmp(comp->name, "Coupler") == 0) {
-                    DEBUG_OUT("We are talking to rdv\n");
-                    assert(0 && "not implemented");
-                    // bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
-                } else if(strstr(comp->name, "Client") == 0) {
-                    DEBUG_OUT("We are rdv\n");
-                    bnh->rdvRanks = bnh->comm_size;
+                if_var[j].comp_id = i;
+                if(i == bnh->comp_id) {
+                    if_var[j].versions = xc_new_ihash_map(32, 1);
                 }
+                if_var[j].comm_type = BNH_COMM_DSP;
             }
-            MPI_Bcast(&bnh->rdvRanks, 1, MPI_INT, bnh->root_rank, bnh->gcomm);
-            if(bnh->rdvRanks) {
-                DEBUG_OUT("%i rendezvous ranks\n", bnh->rdvRanks);
+            free(varnodes);
+            if_var += var_count;
+            DEBUG_OUT("We are %s\n", bnh->name);
+            if(strcmp(comp->app, bnh->name) != 0) {
+                if(!bnh->f_dummy) {
+                    DEBUG_OUT("connecting to component %i (%s)\n", i,
+       comp->app); assert(0 && "not implemented");
+                    // ekt_connect(bnh->ekth, comp->app);
+                    if(strcmp(comp->name, "Coupler") == 0) {
+                        DEBUG_OUT("We are talking to rdv\n");
+                        assert(0 && "not implemented");
+                        // bnh->rdvRanks = ekt_peer_size(bnh->ekth, comp->app);
+                    } else if(strstr(comp->name, "Client") == 0) {
+                        DEBUG_OUT("We are rdv\n");
+                        //bnh->rdvRanks = bnh->comm_size;
+                    }
+                }
+                MPI_Bcast(&bnh->rdvRanks, 1, MPI_INT, bnh->root_rank,
+       bnh->gcomm); if(bnh->rdvRanks) { DEBUG_OUT("%i rendezvous ranks\n",
+       bnh->rdvRanks);
+                }
+            } else {
+                bnh->comps[i].isme = 1;
+                bnh->comp_id = i;
+                mthnodes = xc_get_all(iface->decl, XC_NODE_METHOD, &mth_count);
+                bnh->mths = calloc(mth_count, sizeof(*bnh->mths));
+                bnh->mth_count = mth_count;
+                for(j = 0; j < mth_count; j++) {
+                    mth = mthnodes[j]->decl;
+                    bnh->mths[j].name = mth->name;
+                }
+                free(mthnodes);
             }
-        } else {
-            bnh->comps[i].isme = 1;
-            bnh->comp_id = i;
-            mthnodes = xc_get_all(iface->decl, XC_NODE_METHOD, &mth_count);
-            bnh->mths = calloc(mth_count, sizeof(*bnh->mths));
-            bnh->mth_count = mth_count;
-            for(j = 0; j < mth_count; j++) {
-                mth = mthnodes[j]->decl;
-                bnh->mths[j].name = mth->name;
-            }
-            free(mthnodes);
         }
-    }
-    free(compnodes);
+        free(compnodes);
 
-    dmapnodes = xc_get_all(conf->subconf, XC_NODE_DMAP, &dmap_count);
-    DEBUG_OUT("found %i domain maps\n", dmap_count);
-    for(i = 0, found = 0; i < dmap_count; i++) {
-        dmap = dmapnodes[i]->decl;
-        // TODO domain assignments can be more complicated
-        node = dmap->obj->next;
-        var_name = node->decl;
-        for(j = 0, found = 0; j < comp_count; j++) {
-            if(strcmp(bnh->comps[j].name, dmap->obj->decl) == 0) {
-                wf_var = get_ifvar(bnh, var_name, j, NULL);
-                found = 1;
-                break;
+        dmapnodes = xc_get_all(conf->subconf, XC_NODE_DMAP, &dmap_count);
+        DEBUG_OUT("found %i domain maps\n", dmap_count);
+        for(i = 0, found = 0; i < dmap_count; i++) {
+            dmap = dmapnodes[i]->decl;
+            // TODO domain assignments can be more complicated
+            node = dmap->obj->next;
+            var_name = node->decl;
+            for(j = 0, found = 0; j < comp_count; j++) {
+                if(strcmp(bnh->comps[j].name, dmap->obj->decl) == 0) {
+                    wf_var = get_ifvar(bnh, var_name, j, NULL);
+                    found = 1;
+                    break;
+                }
             }
-        }
-        if(!found) {
-            fprintf(stderr, "ERROR: no component %s for domain map.\n",
-                    (char *)dmap->obj->decl);
-        } else {
-            wf_var->dom = match_conf_domain(bnh, dmap->domain);
-            if(dmap->attrs) {
-                node = dmap->attrs;
-                dmattr = node->decl;
-                if(strcmp(dmattr->val, "rdv_server") == 0) {
-                    if(wf_var->dom->comm_type == BNH_COMM_RDV_CLI) {
-                        fprintf(stderr,
-                                "WARNING: %s being marked rdv server, already "
-                                "client.\n",
-                                wf_var->dom->full_name);
+            if(!found) {
+                fprintf(stderr, "ERROR: no component %s for domain map.\n",
+                        (char *)dmap->obj->decl);
+            } else {
+                wf_var->dom = match_conf_domain(bnh, dmap->domain);
+                if(dmap->attrs) {
+                    node = dmap->attrs;
+                    dmattr = node->decl;
+                    if(strcmp(dmattr->val, "rdv_server") == 0) {
+                        if(wf_var->dom->comm_type == BNH_COMM_RDV_CLI) {
+                            fprintf(stderr,
+                                    "WARNING: %s being marked rdv server,
+       already " "client.\n", wf_var->dom->full_name);
+                        }
+                        wf_var->dom->comm_type = BNH_COMM_RDV_SRV;
+                        DEBUG_OUT("component %s is rdv-server for var '%s'\n",
+                                  bnh->comps[wf_var->comp_id].name,
+       wf_var->name); } else if(strcmp(dmattr->val, "rdv_client") == 0) {
+                        if(wf_var->dom->comm_type == BNH_COMM_RDV_SRV) {
+                            fprintf(stderr,
+                                    "WARNING: %s being marked rdv client,
+       already " "server.\n", wf_var->dom->full_name);
+                        }
+                        wf_var->dom->comm_type = BNH_COMM_RDV_CLI;
+                        DEBUG_OUT("component %s is rdv-client for var '%s'\n",
+                                  bnh->comps[wf_var->comp_id].name,
+       wf_var->name); } else { fprintf( stderr, "WARNING: unimplemented domain
+       map attribute '%s'\n", (char *)dmattr->val);
                     }
-                    wf_var->dom->comm_type = BNH_COMM_RDV_SRV;
-                    DEBUG_OUT("component %s is rdv-server for var '%s'\n",
-                              bnh->comps[wf_var->comp_id].name, wf_var->name);
-                } else if(strcmp(dmattr->val, "rdv_client") == 0) {
-                    if(wf_var->dom->comm_type == BNH_COMM_RDV_SRV) {
-                        fprintf(stderr,
-                                "WARNING: %s being marked rdv client, already "
-                                "server.\n",
-                                wf_var->dom->full_name);
-                    }
-                    wf_var->dom->comm_type = BNH_COMM_RDV_CLI;
-                    DEBUG_OUT("component %s is rdv-client for var '%s'\n",
-                              bnh->comps[wf_var->comp_id].name, wf_var->name);
-                } else {
-                    fprintf(
-                        stderr,
-                        "WARNING: unimplemented domain map attribute '%s'\n",
-                        (char *)dmattr->val);
                 }
             }
         }
-    }
-    free(dmapnodes);
+        free(dmapnodes);
+    */
 }
 
 static void load_domain(struct benesh_handle *bnh, struct xc_list_node *dnode,
@@ -1749,36 +1751,7 @@ static const char *benesh_init_conf_name(struct benesh_handle *bnh,
     return (conf);
 }
 
-static int benesh_split_off_dummies(struct benesh_handle *bnh, MPI_Comm gcomm)
-{
-    TRACE_OUT;
-    int err;
-
-    CHECK_ZERO(MPI_Comm_split(gcomm, bnh->f_dummy, bnh->grank, &bnh->my_comm),
-               BNH_EINVAL, err_out, "invalid communicator\n");
-    DEBUG_OUT("did split\n");
-    CHECK_ZERO(MPI_Comm_rank(bnh->my_comm, &bnh->rank), BNH_EINVAL, err_out,
-               "invalid communicator\n");
-    bnh->root_rank = (!bnh->f_dummy && !bnh->rank) ? bnh->grank : -1;
-    bnh->root_drank = (bnh->f_dummy && !bnh->rank) ? bnh->grank : -1;
-
-    DEBUG_OUT("doing reductions to find roots\n");
-    CHECK_ZERO(MPI_Allreduce(MPI_IN_PLACE, &bnh->root_rank, 1, MPI_INT, MPI_MAX,
-                             bnh->gcomm),
-               BNH_EINVAL, err_out, "invalid communicator\n");
-    CHECK_ZERO(MPI_Allreduce(MPI_IN_PLACE, &bnh->root_drank, 1, MPI_INT,
-                             MPI_MAX, bnh->gcomm),
-               BNH_EINVAL, err_out, "invalid communicator\n");
-
-    DEBUG_OUT("Rank %i is root of the dummies, rank %i is normal root.\n",
-              bnh->root_drank, bnh->root_rank);
-
-    return (0);
-
-err_out:
-    return (err);
-}
-
+/*
 static int benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm)
 {
     TRACE_OUT;
@@ -1800,6 +1773,7 @@ static int benesh_init_mpi(struct benesh_handle *bnh, MPI_Comm gcomm)
 err_out:
     return (err);
 }
+*/
 
 static int benesh_init_margo(struct benesh_handle *bnh)
 {
@@ -1846,17 +1820,19 @@ err_out:
 static int benesh_wireup_preconfig(struct benesh_handle *bnh, MPI_Comm gcomm)
 {
     TRACE_OUT;
+    MPI_Comm my_comm;
     int err;
 
-    CHECK_ZERO(benesh_init_mpi(bnh, gcomm), err, err_out,
-               "MPI initialization failed.\n");
+    ASSIGN_NOT_NULL(benesh_comm_init(gcomm, bnh->f_dummy), bnh->bcomm,
+                    BNH_EFAULT, err_out,
+                    "failed to initialize benesh communicators.\n");
     CHECK_ZERO(benesh_init_margo(bnh), err, err_out,
                "margo initialization failed.\n");
     if(!bnh->f_dummy) {
-        bnh->bekth = benesh_ekt_init(bnh->name, bnh->my_comm, bnh->mid, bnh);
-        if(!bnh->bekth) {
-            ERR_OUT(BNH_EEKT, err_out, "EKT initialization failed.\n");
-        }
+
+        ASSIGN_NOT_NULL(benesh_ekt_init(bnh->name, my_comm, bnh->mid, bnh),
+                        bnh->bekth, BNH_EEKT, err_out,
+                        "EKT initialization failed.\n");
     }
 
 err_out:
@@ -1882,22 +1858,37 @@ err_out:
 static int benesh_wireup_postconfig(struct benesh_handle *bnh, int wait)
 {
     TRACE_OUT;
+    MPI_Comm my_comm;
     int i, err;
 
     if(!bnh->f_dummy) {
-        CHECK_ZERO(
-            benesh_ekt_xconnect(bnh->bekth, bnh->bco, bnh->my_comm, wait),
-            BNH_EEKT, err_out, "componenent cross-connnect failed.\n");
+        CHECK_ZERO(benesh_comm_get_my_comm(bnh->bcomm, &my_comm), err, err_out,
+                   "could not retrieve communicator.\n");
+        CHECK_ZERO(benesh_ekt_xconnect(bnh->bekth, bnh->bco, my_comm, wait),
+                   BNH_EEKT, err_out, "componenent cross-connnect failed.\n");
     }
 
 err_out:
     return (0);
 }
 
+static int benesh_teardown(struct benesh_handle *bnh)
+{
+    TRACE_OUT;
+    int err;
+
+    margo_finalize(bnh->mid);
+
+    return (0);
+err_out:
+    return (err);
+}
+
 int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy,
                 int wait, struct benesh_handle **handle)
 {
     int flag;
+    int grank;
     struct benesh_handle *bnh = calloc(1, sizeof(*bnh));
     const char *conf_file;
     int success = 0;
@@ -1905,15 +1896,14 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy,
 
     MPI_Initialized(&flag);
     if(flag) {
-        CHECK_ZERO(MPI_Comm_rank(gcomm, &bnh->grank), BNH_EINVAL, err_out,
+        CHECK_ZERO(MPI_Comm_rank(gcomm, &grank), BNH_EINVAL, err_out,
                    "invalid communicator\n");
     } else {
-        bnh->grank = -1;
         ERR_OUT(BNH_EPERM, err_out_nompi,
                 "MPI must be initialized before starting benesh.\n");
     }
 
-    CHECK_ZERO(benesh_init_logging(bnh->grank), err, err_out_nompi,
+    CHECK_ZERO(benesh_init_logging(grank), err, err_out_nompi,
                "logging initiatialization failed.\n");
 
     benesh_init_app_name(bnh, name);
@@ -1936,7 +1926,7 @@ int benesh_init(const char *name, const char *conf, MPI_Comm gcomm, int dummy,
 
     CHECK_ZERO(benesh_wireup_preconfig(bnh, gcomm), err, err_out,
                "preconfigure wireup failed.\n");
-    bnh->conf = benesh_config_load(conf_file, bnh->gcomm);
+    bnh->conf = benesh_config_load(conf_file, gcomm);
     if(!bnh->conf) {
         ERR_OUT(BNH_ECONF, err_out, "could not load configuration.\n");
     }
@@ -2621,9 +2611,12 @@ void overlap_offset(struct wf_domain *loc_dom, struct wf_domain *glob_dom,
 static void command_dummies(struct benesh_handle *bnh, int command, int comp_id,
                             int var_id)
 {
-    int cmd[3] = {command, comp_id, var_id};
+    assert(0 && "not implemented");
+    /*
+        int cmd[3] = {command, comp_id, var_id};
 
-    MPI_Send(cmd, 3, MPI_INT, bnh->root_drank, 0, bnh->gcomm);
+        MPI_Send(cmd, 3, MPI_INT, bnh->root_drank, 0, bnh->gcomm);
+    */
 }
 
 int handle_pub(struct benesh_handle *bnh, struct work_node *wnode)
@@ -3147,6 +3140,9 @@ static void signal_minmax(struct benesh_handle *bnh, unsigned int signal,
     int sendbuf[2] = {signal, -signal};
     int recvbuf[2];
 
+    assert(0 && "not implemented");
+
+    /*
     DEBUG_OUT("signal %i status is %i\n", sigid++, signal);
     MPI_Allreduce(sendbuf, recvbuf, 2, MPI_INT, MPI_MIN, bnh->my_comm);
     if(min) {
@@ -3155,6 +3151,7 @@ static void signal_minmax(struct benesh_handle *bnh, unsigned int signal,
     if(max) {
         *max = -recvbuf[1];
     }
+    */
 }
 
 int benesh_handle_work(struct benesh_handle *bnh)
@@ -3396,6 +3393,9 @@ static void do_ordered_recv(struct benesh_handle *bnh, int comp_id, int var_id)
 
 static void take_nondummy_orders(struct benesh_handle *bnh)
 {
+    assert(0 && "not implemented");
+
+    /*
     int cmd[3] = {0};
     do {
         if(bnh->grank == bnh->root_drank) {
@@ -3412,6 +3412,7 @@ static void take_nondummy_orders(struct benesh_handle *bnh)
         }
     } while(cmd[0] != BNH_TERM);
     DEBUG_OUT("got term command\n");
+    */
 }
 
 int benesh_tpoint(struct benesh_handle *bnh, const char *tpoint_str)
@@ -3432,6 +3433,8 @@ int benesh_tpoint(struct benesh_handle *bnh, const char *tpoint_str)
     ASSIGN_NOT_NULL(benesh_obj_from_str(tpoint_str), tpoint_obj, BNH_EFAULT,
                     err_out, "could not parse touchpoint string.\n");
     if(bnh->f_dummy) {
+        CHECK_ZERO(benesh_dummy_cmd_listen(bnh->bcomm), err, err_out,
+                   "dummy touchpoint handling failed.\n");
     }
     CHECK_ZERO(benesh_obj_to_tpoint(bnh, tpoint_obj, &tpoint, &var_map),
                BNH_ENOENT, err_out, "no touchpoint rules match '%s'.\n",
@@ -3441,6 +3444,18 @@ int benesh_tpoint(struct benesh_handle *bnh, const char *tpoint_str)
     }
     CHECK_ZERO(benesh_ekt_announce_tp(bnh->bekth, tpoint, var_map), err,
                err_out, "could not announce touchpoint.\n");
+
+    // tpoint will be scheduled by tpoint_watch
+
+    while(!benesh_tp_is_complete(bnh, tpoint, var_map, &err)) {
+        CHECK_ZERO(benesh_queue_run(bnh), err, err_out,
+                   "failed processing the work queue.\n");
+    }
+
+    CHECK_ZERO(err, err, err_out, "failure checking touchpoitn completion");
+
+    CHECK_ZERO(benesh_dummy_term(bnh->bcomm), err, err_out,
+               "failed to send term signal tp dummies.\n");
 
     free(var_map);
     return (0);
@@ -3578,8 +3593,26 @@ int benesh_fini(struct benesh_handle *bnh)
         CHECK_ZERO(benesh_ekt_send_fini(bnh->bekth, comp_id), err, err_out,
                    "faild to send component finish.\n");
         benesh_connected_count(bnh->bco, &conn_count);
-        // TODO - need a lock in cohort
+        while(benesh_comp_any(bnh->bco, &err)) {
+            CHECK_ZERO(benesh_queue_run(bnh), err, err_out,
+                       "failed to process queue.\n");
+        }
+        CHECK_ZERO(err, err, err_out, "failure checking connectivity.\n");
     }
+    CHECK_ZERO(benesh_comm_app_barrier(bnh->bcomm), err, err_out,
+               "barrier failure.\n");
+
+    CHECK_ZERO(benesh_ekt_fini(bnh->bekth), err, err_out,
+               "could not finalize benesh ekt module.\n");
+    CHECK_ZERO(benesh_comm_app_barrier(bnh->bcomm), err, err_out,
+               "barrier failure.\n");
+
+    CHECK_ZERO(benesh_teardown(bnh), err, err_out,
+               "communication teardown failed.\n");
+
+    // TODO: free config strucures
+
+    return (0);
 err_out:
     return (err);
 }

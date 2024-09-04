@@ -500,3 +500,20 @@ int benesh_ekt_announce_tp(struct bnhekt_handle *bekth,
 err_out:
     return (err);
 }
+
+int benesh_ekt_fini(struct bnhekt_handle *bekth)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bekth) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh ekt handle.\n");
+    }
+
+    CHECK_ZERO(ekt_fini(&bekth->ekth), err, err_out,
+               "failed to finalize EKT.\n");
+
+    return (0);
+err_out:
+    return (err);
+}
