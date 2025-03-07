@@ -1169,7 +1169,7 @@ void *benesh_obj_db_search(struct benesh_obj_db *bodb, struct benesh_obj *obj)
         }
         switch(part->type) {
         case BNH_OBJ_ID:
-            bnh_dict_lookup(node->node_dict, part->str, &node);
+            bnh_dict_lookup(node->node_dict, part->str, (void **)&node);
         case BNH_OBJ_VAL:
             node = bnh_hash_lookup(node->ihash, part->val);
         case BNH_OBJ_VAR:

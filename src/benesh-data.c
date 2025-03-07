@@ -69,7 +69,7 @@ static struct benesh_var_inst *benesh_var_find_inst(struct benesh_var *var,
     }
 
 err_out:
-    return (NULL;);
+    return (NULL);
 }
 
 static int benesh_var_ver_to_datum(struct benesh_var *var,
@@ -77,7 +77,7 @@ static int benesh_var_ver_to_datum(struct benesh_var *var,
                                    struct benesh_datum *datum)
 {
     TRACE_OUT;
-    struct bensh_var_inst *inst;
+    struct benesh_var_inst *inst;
     int err;
 
     if(!var) {
@@ -98,6 +98,13 @@ static int benesh_var_ver_to_datum(struct benesh_var *var,
         } else {
             inst = var->cur_version;
         }
+        break;
+    case BNH_VAR_LIST:
+        //TODO
+        break;
+    case BNH_VAR_GRID:
+        //TODO
+        break;
     }
 
     return (0);
@@ -142,6 +149,13 @@ int benesh_var_assign(struct benesh_var *from_var,
     case BNH_VAR_SCALAR:
         CHECK_ZERO(benesh_var_ver_to_datum(from_var, from_version, &datum), err,
                    err_out, "failed to convert source to datum.\n");
+        break;
+    case BNH_VAR_LIST:
+        // TODO
+        break;
+    case BNH_VAR_GRID:
+        // TODO
+        break;
     }
 
     return (0);

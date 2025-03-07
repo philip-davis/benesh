@@ -1002,7 +1002,9 @@ struct xc_obj_fusion *xc_new_obj_fusion(struct xc_minst *first, struct xc_minst 
         fus = malloc(sizeof(*fus));
         fus->first = first->args;
         fus->second = second->args;
-    }     
+        return(fus);
+    }
+    return(NULL);
 }
 
 int xc_unify_method(struct xc_list_node *list, struct xc_list_node *mobj)

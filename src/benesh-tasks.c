@@ -574,6 +574,28 @@ static int benesh_taskman_run_task(struct benesh_handle *bnh,
     case BNH_TASK_ASSIGN:
         CHECK_ZERO(benesh_task_do_assign(bnh, task->assign, task->tgt), err,
                    err_out, "could not do assign.\n");
+        break;
+    case BNH_TASK_METHOD:
+        //TODO
+        break;
+    case BNH_TASK_IMPORT:
+        //TODO
+        break;
+    case BNH_TASK_PUT:
+        //TODO
+        break;
+    case BNH_TASK_GET:
+        //TODO
+        break;
+    case BNH_TASK_INJECT:
+        //TODO
+        break;
+    case BNH_TASK_COMPLETE_OBJ:
+        //TODO
+        break;
+    case BNH_TASK_START_OBJ:
+        //TODO
+        break;
     }
 
     return (0);
