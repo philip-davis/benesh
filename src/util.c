@@ -129,7 +129,7 @@ char *bnh_bracket_str(const char *prefix, const char *middle,
 
 struct bnh_hash_node {
     struct bnh_hash_node *next;
-    int id;
+    long id;
     void *ptr;
 };
 
@@ -180,7 +180,7 @@ void bnh_hash_add_entry(struct bnh_hash *hash, int id, void *ptr)
     *node = new_node;
 }
 
-void *bnh_hash_lookup(struct bnh_hash *hash, int id)
+void *bnh_hash_lookup(struct bnh_hash *hash, long id)
 {
     int hid;
     struct bnh_hash_node *node;
@@ -203,4 +203,57 @@ void *bnh_hash_lookup(struct bnh_hash *hash, int id)
     }
 
     return (NULL);
+}
+
+struct bnh_dict_entry {
+    char *key;
+    void *val;
+};
+
+struct bnh_dict {
+    struct bnh_pvec *entries;
+};
+
+struct bnh_dict *bnh_dict_new(size_t size)
+{
+    struct bnh_dict *dict = malloc(sizeof(*dict));
+
+    dict->entries = bnh_pvec_new(size);
+
+    return (dict);
+}
+
+void bnh_dict_assign(struct bnh_dict *dict, const char *key, void *val)
+{
+    bnh_pvec_iter bi;
+    struct bnh_dict_entry *entry;
+
+    BNH_PVEC_FOREACH(entry, bi, dict->entries)
+    {
+        if(strcmp(key, entry->key) == 0) {
+            entry->val = val;
+            return;
+        }
+    }
+
+    entry = malloc(sizeof(*entry));
+    entry->key = strdup(key);
+    entry->val = val;
+    bnh_pvec_append(dict->entries, entry, -1);
+}
+
+int bnh_dict_lookup(struct bnh_dict *dict, const char *key, void **result)
+{
+    bnh_pvec_iter bi;
+    struct bnh_dict_entry *entry;
+
+    BNH_PVEC_FOREACH(entry, bi, dict->entries)
+    {
+        if(strcmp(key, entry->key) == 0) {
+            *result = entry->val;
+            return (1);
+        }
+    }
+
+    return (0);
 }

@@ -49,6 +49,10 @@ int benesh_target_get_nprereq(struct benesh_target *tgt, size_t *nprereq);
 
 int benesh_target_get_ndir(struct benesh_target *tgt, size_t *ndir);
 
+int benesh_target_get_var_map(struct benesh_target *tgt, int64_t **var_map);
+
+int benesh_target_get_rule_id(struct benesh_target *tgt, int *rule_id);
+
 int benesh_rule_get_ndir(struct benesh_rule *rule, size_t *ndir);
 
 struct benesh_rule *benesh_rule_get_by_id(benesh_rulebook rules, int rule_id);

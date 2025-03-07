@@ -51,6 +51,14 @@ struct bnh_hash *bnh_hash_new(size_t size, int seed);
 
 void bnh_hash_add_entry(struct bnh_hash *hash, int id, void *ptr);
 
-void *bnh_hash_lookup(struct bnh_hash *hash, int id);
+void *bnh_hash_lookup(struct bnh_hash *hash, long id);
+
+struct bnh_dict;
+
+struct bnh_dict *bnh_dict_new(size_t size);
+
+void bnh_dict_assign(struct bnh_dict *dict, const char *key, void *val);
+
+int bnh_dict_lookup(struct bnh_dict *dict, const char *key, void **result);
 
 #endif // _BENESH_UTIL

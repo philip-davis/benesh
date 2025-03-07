@@ -149,6 +149,28 @@ err_out:
     return (NULL);
 }
 
+int benesh_target_get_rule_id(struct benesh_target *tgt, int *rule_id)
+{
+    TRACE_OUT;
+    struct benesh_rule *rule;
+    int err;
+
+    if(!tgt || !tgt->rule) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target.\n");
+    }
+    if(!rule_id) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    rule = tgt->rule;
+    *rule_id = rule->id;
+
+    return (0);
+err_out:
+    *rule_id = -1;
+    return (err);
+}
+
 int benesh_rule_get_nprereq(struct benesh_rule *rule, size_t *nprereq)
 {
     TRACE_OUT;
@@ -228,6 +250,25 @@ int benesh_target_get_ndir(struct benesh_target *tgt, size_t *ndir)
     return (0);
 err_out:
     *ndir = -1;
+    return (err);
+}
+
+int benesh_target_get_var_map(struct benesh_target *tgt, int64_t **var_map)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!tgt) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad target.\n");
+    }
+    if(!var_map) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad output pointer.\n");
+    }
+
+    *var_map = tgt->var_map;
+
+    return (0);
+err_out:
     return (err);
 }
 

@@ -7,6 +7,7 @@
 
 #include "benesh-cohort.h"
 #include "benesh-tpoint.h"
+#include "benesh-types.h"
 
 #define BNH_EKT_TP 0
 #define BNH_EKT_WORK 1
@@ -24,6 +25,9 @@ int benesh_ekt_xconnect(struct bnhekt_handle *bekth, struct benesh_cohort *bco,
 
 int benesh_ekt_announce_tp(struct bnhekt_handle *bekth,
                            struct benesh_touchpoint *tpoint, int64_t *var_map);
+
+int benesh_ekt_announce_work(struct bnhekt_handle *bekth,
+                             struct work_announce *announce);
 
 int benesh_ekt_fini(struct bnhekt_handle *bekth);
 

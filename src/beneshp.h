@@ -52,4 +52,6 @@ struct bnh_pvec *benesh_prereq_targets(struct benesh_handle *bnh,
 
 int benesh_queue_run(struct benesh_handle *bnh);
 
+int benesh_announce_work(struct benesh_handle *bnh, struct benesh_task *task);
+
 #endif // _BENESHP_H

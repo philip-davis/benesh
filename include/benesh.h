@@ -113,7 +113,8 @@ typedef enum benesh_datatype {
     BNH_FLOAT,
     BNH_DOUBLE,
     BNH_BOOL,
-    BNH_BYTES
+    BNH_BYTES,
+    BNH_CHAR
 } benesh_datatype;
 
 enum benesh_fragment_type { BNH_TILE, BNH_DISC_TILE, BNH_GEO_TILE, BNH_SPANS };

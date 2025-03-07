@@ -2,6 +2,7 @@
 #include "benesh.h"
 #include "util.h"
 
+#include <abt.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -1081,4 +1082,106 @@ int benesh_obj_fully_resolved(struct benesh_obj *obj, int *is_resolved)
     return (0);
 err_out:
     return (err);
+}
+
+struct benesh_obj_db_node {
+    void *val;
+    struct bnh_hash *ihash;
+    struct bnh_dict *node_dict;
+};
+
+struct benesh_obj_db {
+    ABT_mutex mtx;
+    struct benesh_obj_db_node *entries;
+};
+
+int benesh_obj_db_lock(struct benesh_obj_db *bodb)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bodb) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad object db.\n");
+    }
+
+    CHECK_ZERO(ABT_mutex_lock(bodb->mtx), BNH_EABT, err_out,
+               "failed to lock object db.\n");
+
+    return (0);
+err_out:
+    return (err);
+}
+
+int benesh_obj_db_unlock(struct benesh_obj_db *bodb)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bodb) {
+        ERR_OUT(BNH_EINVAL, err_out, "bad object db.\n");
+    }
+
+    CHECK_ZERO(ABT_mutex_unlock(bodb->mtx), BNH_EABT, err_out,
+               "failed to unlock object db. Possible deadlock.\n");
+
+    return (0);
+err_out:
+    return (err);
+}
+
+static struct benesh_obj_db_node *benesh_obj_db_node_new(size_t size, int seed)
+{
+    TRACE_OUT;
+    struct benesh_obj_db_node *node;
+    int err;
+
+    node = malloc(sizeof(*node));
+    ASSIGN_NOT_NULL(bnh_hash_new(size, seed), node->ihash, BNH_EINVAL, err_out,
+                    "could not create new integer hash.\n");
+    ASSIGN_NOT_NULL(bnh_dict_new(size), node->node_dict, BNH_EINVAL, err_out,
+                    "could not create string list.\n");
+
+    return (node);
+err_out:
+    return (NULL);
+}
+
+void *benesh_obj_db_search(struct benesh_obj_db *bodb, struct benesh_obj *obj)
+{
+    TRACE_OUT;
+    struct benesh_obj_part *part;
+    bnh_pvec_iter bi;
+    struct benesh_obj_db_node *node;
+    int err;
+
+    if(!bodb) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad object db.\n");
+    }
+    if(!obj) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad search object.\n");
+    }
+
+    node = bodb->entries;
+    BNH_PVEC_FOREACH(part, bi, obj->parts)
+    {
+        if(!node) {
+            return (NULL);
+        }
+        switch(part->type) {
+        case BNH_OBJ_ID:
+            bnh_dict_lookup(node->node_dict, part->str, &node);
+        case BNH_OBJ_VAL:
+            node = bnh_hash_lookup(node->ihash, part->val);
+        case BNH_OBJ_VAR:
+        case BNH_OBJ_EXPR:
+            ERR_OUT(BNH_EINVAL, err_out,
+                    "search object must be fully resolved.\n");
+        default:
+            ERR_OUT(BNH_EFAULT, err_out, "invalid part of search object.\n");
+        }
+    }
+    return (node->val);
+
+err_out:
+    return (NULL);
 }

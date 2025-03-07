@@ -4,6 +4,7 @@
 #include "benesh-obj.h"
 #include "benesh-targets.h"
 #include "benesh-tasks.h"
+#include "benesh-types.h"
 #include "util.h"
 
 #include <unistd.h>
@@ -132,8 +133,8 @@ int benesh_add_import_task_by_ids(struct benesh_handle *bnh, int rule_id,
 
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
                "failed to unlock task manager. Probable deadlock!\n");
-    CHECK_ZERO(benesh_enqueue_import(bnh->btm, tgt, directive_id), err, err_out,
-               "failed to enqueue import task.\n");
+    CHECK_ZERO(benesh_taskman_enqueue_import(bnh->btm, tgt, directive_id), err,
+               err_out, "failed to enqueue import task.\n");
 
     return (0);
 
@@ -478,7 +479,7 @@ int benesh_get_obj_status(struct benesh_handle *bnh, struct benesh_obj *obj,
     struct benesh_target *tgt;
     int64_t *var_map = NULL;
     int is_resolved;
-    int err, err2;
+    int err;
 
     if(!bnh) {
         ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
@@ -495,38 +496,10 @@ int benesh_get_obj_status(struct benesh_handle *bnh, struct benesh_obj *obj,
     if(!is_resolved) {
         ERR_OUT(BNH_EINVAL, err_out, "object not fully resolved.\n");
     }
-    CHECK_ZERO(benesh_taskman_lock(bnh->btm), err, err_out,
-               "could not lock task manager.\n");
-    ASSIGN_NOT_NULL(benesh_obj_to_tgt(bnh, obj), tgt, BNH_ENOENT, err_out_lock,
+    ASSIGN_NOT_NULL(benesh_obj_to_tgt(bnh, obj), tgt, BNH_ENOENT, err_out,
                     "could not find matching target for object.\n");
-    CHECK_ZERO(benesh_target_get_status(tgt, status), err, err_out_lock,
+    CHECK_ZERO(benesh_target_get_status(tgt, status), err, err_out,
                "could not access target.\n");
-    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
-               "could not unlock task manager. Possible deadlock!\n");
-    return (0);
-err_out_lock:
-    // keep err from being reset on successful unlock
-    err2 = err;
-    CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
-               "could not unlock task manager. Possible deadlock!\n");
-    err = err2;
-err_out:
-    return (err);
-}
-
-static int benesh_queue_run_next(struct benesh_handle *bnh)
-{
-    TRACE_OUT;
-    int err;
-
-    if(!bnh) {
-        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
-    }
-
-    // dequeue a work item
-
-    // handle the work item
-
     return (0);
 err_out:
     return (err);
@@ -555,9 +528,12 @@ int benesh_queue_run(struct benesh_handle *bnh)
     }
 
     while(!benesh_taskman_queue_empty(bnh->btm, &err)) {
-        CHECK_ZERO(benesh_queue_run_next(bnh), err, err_out,
+        CHECK_ZERO(benesh_taskman_run_next(bnh->btm, bnh), err, err_out,
                    "failed to handle nexst work item.\n");
     }
+
+    CHECK_ZERO(err, err, err_out_lock, "failure accessing task manager.\n");
+
     CHECK_ZERO(err, err, err_out_lock, "failure accessing task manager.\n");
 
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out,
@@ -569,6 +545,44 @@ err_out_lock:
     CHECK_ZERO(benesh_taskman_unlock(bnh->btm), err, err_out_lock,
                "could not unlock task manager. Possible deadlock\n");
     err = err2;
+err_out:
+    return (err);
+}
+
+int benesh_announce_work(struct benesh_handle *bnh, struct benesh_task *task)
+{
+    TRACE_OUT;
+    struct work_announce announce;
+    struct benesh_target *tgt;
+    struct benesh_rule *rule;
+    int comp_id, rule_id, dir_id;
+    int err;
+
+    if(!bnh) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh handle.\n");
+    }
+    if(!task) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad task.\n");
+    }
+
+    CHECK_ZERO(benesh_my_comp_id(bnh, &comp_id), err, err_out,
+               "could not get my own component id.\n");
+    announce.comp_id = comp_id;
+    ASSIGN_NOT_NULL(benesh_task_get_target(task), tgt, BNH_EFAULT, err_out,
+                    "could not access task.\n");
+    CHECK_ZERO(benesh_target_get_var_map(tgt, &announce.tgt_vars), err, err_out,
+               "could get access target.\n");
+    CHECK_ZERO(benesh_target_get_rule_id(tgt, &rule_id), err, err_out,
+               "could get access target.\n");
+    announce.rule_id = rule_id;
+    CHECK_ZERO(benesh_task_get_dir_id(task, &dir_id), err, err_out,
+               "cannot access task.\n");
+    announce.directive_id = dir_id;
+
+    CHECK_ZERO(benesh_ekt_announce_work(bnh->bekth, &announce), err, err_out,
+               "ekt failed to announce work.\n");
+
+    return (0);
 err_out:
     return (err);
 }

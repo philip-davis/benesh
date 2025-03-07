@@ -501,6 +501,27 @@ err_out:
     return (err);
 }
 
+int benesh_ekt_announce_work(struct bnhekt_handle *bekth,
+                             struct work_announce *announce)
+{
+    TRACE_OUT;
+    int err;
+
+    if(!bekth) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad benesh ekt handle.\n");
+    }
+    if(!announce) {
+        ERR_OUT(BNH_EFAULT, err_out, "bad announce structure.\n");
+    }
+
+    CHECK_ZERO(ekt_tell(bekth->ekth, NULL, bekth->work_type, announce),
+               BNH_EEKT, err_out, "failed to announce work.\n");
+
+    return (0);
+err_out:
+    return (err);
+}
+
 int benesh_ekt_fini(struct bnhekt_handle *bekth)
 {
     TRACE_OUT;

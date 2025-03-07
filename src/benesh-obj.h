@@ -24,4 +24,10 @@ int benesh_unify_obj_target(struct benesh_obj *obj, struct benesh_obj *target,
 
 int benesh_obj_fully_resolved(struct benesh_obj *obj, int *is_resolved);
 
+int benesh_obj_db_lock(struct benesh_obj_db *bodb);
+
+int benesh_obj_db_unlock(struct benesh_obj_db *bodb);
+
+void *benesh_obj_db_search(struct benesh_obj_db *bodb, struct benesh_obj *obj);
+
 #endif // _BENESH_OBJ_H
